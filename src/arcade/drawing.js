@@ -1,3 +1,4 @@
+export const TRAIL_LIMIT = 115;
 export const W = 900,
   H = 440,
   tau = Math.PI * 2;
@@ -32,8 +33,8 @@ export function disc(c, x, y, r, fill, stroke) {
 export function path(c, points, color, width = 1) {
   if (!points.length) return;
   c.beginPath();
-  c.moveTo(...points[0]);
-  for (const p of points.slice(1)) c.lineTo(...p);
+  c.moveTo(points[0][0], points[0][1]);
+  for (const [x, y] of points.slice(1)) c.lineTo(x, y);
   c.strokeStyle = color;
   c.lineWidth = width;
   c.stroke();

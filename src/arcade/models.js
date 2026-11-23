@@ -1,4 +1,6 @@
 import * as T from "three";
+import { impactModels } from "./impact-models.js";
+import { createPlumes } from "./plasma.js";
 import { W, H, noise, tau } from "./drawing.js";
 
 const hashGL = `float hash(vec3 p){p=fract(p*.3183099+vec3(.11,.41,.73));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
@@ -8,12 +10,32 @@ mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),has
 float fb(vec3 p){return .58*grain(p)+.28*grain(p*2.1)+.14*grain(p*4.2);}`;
 function nightEarth(scene, earth) {
   const map = new T.TextureLoader().load("/art/land.svg");
+  const sites = Array.from({ length: 3 }, () => new T.Vector4());
+  const ages = new Float32Array(3);
+  const spinAxis = new T.Vector3(0, 1, 0),
+    viewAxis = new T.Vector3(0, 0, 1),
+    normal = new T.Vector3();
   const globe = new T.Mesh(
     new T.SphereGeometry(earth.r, 96, 64),
     new T.ShaderMaterial({
-      uniforms: { land: { value: map }, clock: { value: 0 } },
-      vertexShader: `varying vec2 uvv;varying vec3 n;void main(){uvv=uv;n=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-      fragmentShader: `uniform sampler2D land;uniform float clock;varying vec2 uvv;varying vec3 n;${hashGL}
+      uniforms: {
+        land: { value: map },
+        clock: { value: 0 },
+        sites: { value: sites },
+        scarAges: { value: ages },
+        scarCount: { value: 0 },
+      },
+      vertexShader: `varying vec2 uvv;varying vec3 n;uniform vec4 sites[3];uniform int scarCount;
+      void main(){
+        uvv=uv;n=normalize(normalMatrix*normal);float relief=0.;
+        for(int i=0;i<3;i++){
+          if(i>=scarCount)break;
+          float d=length(n-sites[i].xyz)/sites[i].w;
+          relief+=2.8*exp(-pow((d-.94)*9.,2.))-5.8*(1.-smoothstep(.16,.9,d));
+        }
+        gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*relief,1.);
+      }`,
+      fragmentShader: `uniform sampler2D land;uniform float clock;uniform vec4 sites[3];uniform float scarAges[3];uniform int scarCount;varying vec2 uvv;varying vec3 n;${hashGL}
     void main(){vec3 norm=normalize(n);vec2 uv=vec2(fract(uvv.x+.15+clock*.0008),uvv.y);float continent=texture2D(land,uv).r;
     float sun=dot(norm,normalize(vec3(-.92,.46,.20)));float day=smoothstep(-.18,.38,sun);
     vec3 terrain=mix(vec3(.055,.22,.46),mix(vec3(.16,.36,.28),vec3(.45,.48,.31),fb(vec3(uv*32.,.4))),continent);
@@ -23,6 +45,29 @@ function nightEarth(scene, earth) {
     float cloud=smoothstep(.52,.69,fb(vec3(uv.x*54.+sin(uv.y*45.)*1.3,uv.y*104.,.5)));
     col=mix(col,mix(vec3(.12,.15,.24),vec3(.84,.91,.97),day),cloud*.82);
     col+=vec3(.18,.57,1.)*pow(1.-max(norm.z,0.),3.2)*(.36+.75*day);
+    for(int i=0;i<3;i++){
+      if(i>=scarCount)break;
+      vec3 site=sites[i].xyz;float size=sites[i].w,age=scarAges[i];
+      float arc=length(norm-site);
+      if(arc>size*1.7 && age>2.3)continue;
+      float rough=fb(norm*36.+site*3.);
+      float d=arc/size+(rough-.5)*.19;
+      float bowl=1.-smoothstep(.66,.92,d);
+      float rim=exp(-pow((d-.94)*10.,2.));
+      float charred=1.-smoothstep(.94,1.48,d);
+      vec3 radial=normalize(norm-site+vec3(.0001));
+      float wall=dot(radial,normalize(vec3(-.75,.52,.3)));
+      col=mix(col,vec3(.075,.05,.07)+rough*.09,charred*.93);
+      col=mix(col,vec3(.037,.022,.037)+max(0.,wall)*smoothstep(.3,.84,d)*.26,bowl);
+      col+=rim*(.19+.47*max(0.,-wall))*vec3(.94,.69,.51);
+      float lava=(1.-smoothstep(.035,.15,abs(sin(rough*25.+d*9.))))*bowl;
+      float bearing=atan(radial.y,radial.x);
+      float ray=abs(sin(bearing*11.+rough*3.6));
+      float fissures=(1.-smoothstep(.018,.10,ray))*smoothstep(.76,.96,d)*(1.-smoothstep(1.,1.52,d));
+      col+=vec3(1.,.31,.05)*(lava*1.5+rim*.85+bowl*.27+fissures)*exp(-age*.17);
+      float shock=exp(-pow((arc-age*1.25)*21.,2.))*exp(-age*1.6);
+      col+=vec3(.99,.64,.26)*shock;
+    }
     gl_FragColor=vec4(col,1.);}`,
     }),
   );
@@ -51,7 +96,25 @@ function nightEarth(scene, earth) {
   glow.position.z = -1;
   glow.scale.setScalar(earth.r * 2.4);
   scene.add(glow);
-  return (t) => (globe.material.uniforms.clock.value = t);
+  return (t, scars) => {
+    const uniforms = globe.material.uniforms;
+    uniforms.clock.value = t;
+    uniforms.scarCount.value = Math.min(scars.length, sites.length);
+    for (let i = 0; i < uniforms.scarCount.value; i++) {
+      const scar = scars[i],
+        age = t - scar.time;
+      const nx = (scar.x - earth.x) / earth.r,
+        ny = (earth.y - scar.y) / earth.r;
+      normal.set(nx, ny, Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny)));
+      // Rotate the scar with the longitude offset used by the land texture.
+      normal
+        .applyAxisAngle(viewAxis, -globe.rotation.z)
+        .applyAxisAngle(spinAxis, -age * 0.0008 * Math.PI * 2)
+        .applyAxisAngle(viewAxis, globe.rotation.z);
+      sites[i].set(normal.x, normal.y, normal.z, scar.size / earth.r);
+      ages[i] = age;
+    }
+  };
 }
 function iceShelf(scene, e) {
   const points = [],
@@ -197,6 +260,29 @@ function asteroidMaterial(ice) {
   };
   return mat;
 }
+// Translucent-looking glacial layers, a frosted rind and lit fracture planes.
+function glacierMaterial() {
+  return new T.ShaderMaterial({
+    vertexShader: `varying vec3 localP;varying vec3 eyeP;
+      void main(){localP=position;vec4 view=modelViewMatrix*vec4(position,1.);
+      eyeP=view.xyz;gl_Position=projectionMatrix*view;}`,
+    fragmentShader: `varying vec3 localP;varying vec3 eyeP;
+    ${hashGL}
+    void main(){
+      vec3 normal=normalize(cross(dFdx(eyeP),dFdy(eyeP)));
+      vec3 p=localP+0.09*vec3(fb(localP*6.),fb(localP*6.+3.),fb(localP*6.+7.));
+      float cracks=min(abs(sin(dot(p,vec3(4.4,2.,-1.)))),abs(sin(dot(p,vec3(-2.,5.,3.))+1.)));
+      float frost=smoothstep(.46,.70,fb(p*9.));
+      float sun=max(0.,dot(normal,normalize(vec3(-.56,.72,.67))));
+      float rim=pow(1.-abs(normal.z),2.);
+      vec3 blue=mix(vec3(.065,.28,.50),vec3(.51,.87,.99),fb(p*3.));
+      vec3 color=mix(blue,vec3(.86,.95,1.),frost*.71)*(.51+.70*sun);
+      color+=vec3(.42,.72,.81)*(1.-smoothstep(.018,.075,cracks)) + rim*vec3(.18,.50,.65);
+      color+=vec3(.8,.9,1.)*pow(max(0.,dot(normal,normalize(vec3(-.32,.35,.88)))),32.);
+      gl_FragColor=vec4(color,1.);
+    }`,
+  });
+}
 export function createModels(overlay, earth, world) {
   const canvas = document.createElement("canvas");
   canvas.className = "model-layer";
@@ -221,7 +307,7 @@ export function createModels(overlay, earth, world) {
   scene.add(rim);
   const ice = world.horizon,
     update = ice ? iceShelf(scene, earth) : nightEarth(scene, earth);
-  const mineral = asteroidMaterial(ice),
+  const mineral = ice ? asteroidMaterial(true) : glacierMaterial(),
     prime = new T.MeshStandardMaterial({
       color: "#d1ffee",
       emissive: "#64c995",
@@ -249,16 +335,22 @@ export function createModels(overlay, earth, world) {
     geom.computeVertexNormals();
     return geom;
   });
+  const plumes =
+    world.slug === "umbra-station" ? createPlumes(scene, earth) : null;
+  const impacts = plumes ? impactModels(scene) : null;
   const objects = new Map();
   let width, height;
   return {
-    draw(rocks, t) {
+    clearWakes() {
+      plumes?.clear();
+    },
+    draw(rocks, t, scars, deployments, bursts) {
       if (width !== overlay.clientWidth || height !== overlay.clientHeight) {
         width = overlay.clientWidth;
         height = overlay.clientHeight;
         renderer.setSize(width, height, false);
       }
-      update(t);
+      update(t, scars);
       for (const [r, m] of objects)
         if (!rocks.includes(r)) {
           scene.remove(m);
@@ -278,10 +370,16 @@ export function createModels(overlay, earth, world) {
           t * 0.14,
         );
         m.scale.setScalar(
-          Math.max(12, 26 - r.depth * 4) *
-            (r.prime ? Math.min(1, Math.max(0.02, 2 - r.age)) : 1),
+          (r.radius ?? Math.max(12, 26 - r.depth * 4)) *
+            (r.orbit?.prime
+              ? 0.45 * Math.max(0, 1 - r.age / r.orbit.duration) ** 1.3
+              : r.prime
+                ? Math.min(1, Math.max(0.02, 2 - r.age))
+                : 1),
         );
       }
+      plumes?.draw(rocks, t);
+      impacts?.(deployments, bursts, t);
       renderer.render(scene, cam);
     },
   };

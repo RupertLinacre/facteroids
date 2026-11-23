@@ -1,43 +1,11 @@
-import { numberForWave } from "./flight.js";
+import { fireAt, interceptAt } from "./deployment.js";
+import { createQuestionDeck, numberForWave } from "./questions.js";
+import { instrument } from "./audio.js";
 import { create } from "./orbital.js";
 const isPrime = (n) => {
   for (let i = 2; i * i <= n; i++) if (n % i === 0) return false;
   return n >= 2;
 };
-
-function instrument() {
-  let ctx,
-    muted = false;
-  return {
-    unlock() {
-      if (!window.AudioContext) return;
-      ctx ??= new AudioContext();
-      if (ctx.state === "suspended") ctx.resume().catch(() => {});
-    },
-    toggle() {
-      muted = !muted;
-      return muted;
-    },
-    note(hz, duration = 0.17, voice = "sine", gain = 0.045) {
-      if (muted || ctx?.state !== "running") return;
-      const t = ctx.currentTime,
-        osc = ctx.createOscillator(),
-        amp = ctx.createGain();
-      osc.type = voice;
-      osc.frequency.value = hz;
-      amp.gain.setValueAtTime(0.0001, t);
-      amp.gain.exponentialRampToValueAtTime(gain, t + 0.012);
-      amp.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-      osc.connect(amp).connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + duration + 0.01);
-      osc.onended = () => {
-        osc.disconnect();
-        amp.disconnect();
-      };
-    },
-  };
-}
 
 export async function play(world) {
   document.title = world.name + " · Factoroids";
@@ -47,7 +15,7 @@ export async function play(world) {
   <div class="game-title"><small class="meta">Factoroids / ${world.dimension} / ${world.type}</small><h1>${world.name}</h1><p class="desc">${world.intro}</p></div>
   <section class="cabinet"><div class="hud"><span>Score <b id="score">0</b></span><span>Lives <b id="lives">3</b></span><span class="wave">Wave <b id="wave">1</b></span></div>
   <div class="stage" style="--sky:url('/skies/${world.slug}.webp')"><canvas class="flight-layer" aria-label="${world.name} playfield"></canvas><span class="targets"></span><div class="overlay" hidden><h2></h2><p></p><button class="action" id="resume">Resume</button></div></div>
-  <form class="controls"><label for="factors">Your factors</label><div class="row"><input id="factors" maxlength="80" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="2 × 35 or 2 × 5 × 7"><button class="action">Fire ↗</button></div><p role="status"></p></form></section><p class="note">Follow the dotted impact path. Deflected pieces drift clear. Prime fragments burn up.</p></main>`;
+  <form class="controls"><label for="factors">Your factors</label><div class="row"><input id="factors" maxlength="80" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="2 × 35 or 2 × 5 × 7"><button class="action">Fire ↗</button></div><p role="status"></p></form></section><p class="note">${world.note ?? "Follow the dotted impact path. Deflected pieces drift clear. Prime fragments burn up."}</p></main>`;
 
   const $ = (s) => root.querySelector(s);
   const canvas = $("canvas"),
@@ -68,6 +36,8 @@ export async function play(world) {
     return;
   }
 
+  const umbra = world.slug === "umbra-station";
+  let nextQuestion, aftermath;
   let rocks, shots, score, lives, wave, clock, nextWave, paused, lastTime;
   const readout = () => {
     $("#score").textContent = score;
@@ -87,18 +57,29 @@ export async function play(world) {
       depth,
       prime: isPrime(value),
       age: 0,
+      born: clock,
       locked: false,
       ...pose,
     };
   }
   function spawn() {
-    const v = numberForWave(wave + 1);
+    const active = rocks.filter((r) => !r.safe && !r.prime).map((r) => r.value);
+    const question = umbra
+      ? nextQuestion(active)
+      : { value: numberForWave(wave + 1) };
+    const v = question.value;
     wave++;
-    rocks.push(rock(v, 0, scene.spawn(wave)));
+    const position = scene.spawn(wave, question.difficulty);
+    if (umbra)
+      position.radius = (question.difficulty === "hard" ? 31 : 19) + (v % 7);
+    rocks.push(rock(v, 0, position));
     nextWave = 0;
     readout();
   }
   function reset() {
+    aftermath = 0;
+    nextQuestion = createQuestionDeck();
+    audio.reset();
     scene.reset?.();
     rocks = [];
     shots = [];
@@ -124,6 +105,7 @@ export async function play(world) {
   function pause() {
     if (!lives) return;
     paused = !paused;
+    audio.pause(paused);
     input.disabled = paused;
     $("#pause").textContent = paused ? "Resume" : "Pause";
     if (paused) overlay("Paused", world.name, "Resume");
@@ -132,25 +114,49 @@ export async function play(world) {
       input.focus();
     }
   }
-  function shoot(target, factors, chained = false) {
-    target.locked = true;
-    const duration =
-      scene.shotTime?.(clock, chained) ?? (chained ? 0.32 : 0.65);
-    shots.push({ target, factors, age: 0, duration, chained });
-    if (!chained) scene.fire?.(target, factors.length);
+  function shoot(targets, factors, chained = false) {
+    for (const target of targets) target.locked = true;
+    const target = targets[0];
+    const mount = umbra ? scene.deploy(target, clock, factors.length) : null;
+    const duration = mount ? interceptAt : chained ? 0.32 : 0.65;
+    shots.push({ target, targets, factors, age: 0, duration, mount });
+    if (!chained && !mount) scene.fire(target, factors.length);
+    return mount;
   }
   function impact(shot) {
-    const { target, factors } = shot,
-      [pieces, ...rest] = factors;
-    const value = target.value / pieces;
-    rocks.splice(rocks.indexOf(target), 1);
-    const children = Array.from({ length: pieces }, (_, i) =>
-      rock(value, target.depth + 1, scene.child(target, i, pieces)),
-    );
-    rocks.push(...children);
-    scene.impact(target, children, clock);
-    score += 10;
-    if (rest.length > 1) children.forEach((r) => shoot(r, rest, true));
+    const { factors, mount } = shot;
+    // A single Umbra warhead resolves every submitted split at contact.
+    // Count the intermediate nodes for scoring without spawning extra shots.
+    const levels = mount ? factors.length - 1 : 1;
+    let pieces = 1,
+      points = 0;
+    for (const factor of factors.slice(0, levels)) {
+      points += pieces * 10;
+      pieces *= factor;
+    }
+    for (const target of shot.targets) {
+      const value = target.value / pieces;
+      rocks.splice(rocks.indexOf(target), 1);
+      const children = scene
+        .children(target, pieces, isPrime(value))
+        .map((pose) => rock(value, target.depth + levels, pose));
+      rocks.push(...children);
+      scene.impact(target, children, clock, mount?.weapon);
+      score += points;
+      if (mount) {
+        nextWave = 0;
+        status.textContent = children[0].prime
+          ? value + " is prime. Atmosphere burn-up!"
+          : pieces +
+            " × " +
+            value +
+            " · New orbits. First return in " +
+            Math.round(children[0].orbit.duration) +
+            "s.";
+      } else if (factors.length > 2) {
+        for (const child of children) shoot([child], factors.slice(1), true);
+      }
+    }
     readout();
   }
   $("form").onsubmit = (event) => {
@@ -178,8 +184,13 @@ export async function play(world) {
       status.textContent = "No available asteroid labelled " + product + ".";
       return;
     }
-    targets.forEach((r) => shoot(r, factors));
-    status.textContent = product + " = " + factors.join(" × ");
+    const mount = umbra ? shoot(targets, factors) : null;
+    if (!umbra) targets.forEach((target) => shoot([target], factors));
+    status.textContent =
+      (mount ? mount.weapon.name + " · " : "") +
+      product +
+      " = " +
+      factors.join(" × ");
     input.value = "";
     input.focus();
     readout();
@@ -193,6 +204,8 @@ export async function play(world) {
     $("#sound").textContent = off ? "Unmute" : "Mute";
     $("#sound").setAttribute("aria-pressed", String(off));
   };
+  for (const event of ["keydown", "pointerdown"])
+    root.addEventListener(event, audio.unlock, { once: true });
   reset();
   function frame(time) {
     const dt = Math.min(0.045, (time - (lastTime ?? time)) / 1000);
@@ -202,9 +215,9 @@ export async function play(world) {
       clock += step;
       for (const r of [...rocks]) {
         r.age += step;
-        const missed = scene.move(r, step, clock);
+        const missed = scene.move(r, step);
         if (r.locked) continue;
-        if (r.prime ? r.age > scene.burnTime : missed) {
+        if (missed) {
           rocks.splice(rocks.indexOf(r), 1);
           if (!r.prime && !r.safe) {
             scene.hit(r, clock);
@@ -215,7 +228,10 @@ export async function play(world) {
         }
       }
       for (const shot of [...shots]) {
+        const previous = shot.age;
         shot.age += step;
+        if (shot.mount && previous < fireAt && shot.age >= fireAt)
+          scene.fire(shot.mount, shot.factors.length);
         if (shot.age >= shot.duration) {
           shots.splice(shots.indexOf(shot), 1);
           impact(shot);
@@ -223,22 +239,37 @@ export async function play(world) {
       }
       if (!lives) {
         input.disabled = true;
+        if (!umbra)
+          overlay(
+            "Game over",
+            "Score " + score + " · Wave " + wave,
+            "Play again",
+          );
+      } else {
+        nextWave += step;
+        const threats = rocks.filter((r) => !r.safe && !r.prime);
+        if (
+          (!threats.length &&
+            !shots.length &&
+            !rocks.some((r) => r.orbit?.prime) &&
+            nextWave > 2.5) ||
+          (threats.length < 3 &&
+            nextWave >
+              (umbra ? (wave === 1 ? 7 : 11) : Math.max(7.5, 15 - wave * 0.32)))
+        )
+          spawn();
+      }
+    }
+    if (umbra && !lives && !document.hidden && aftermath < 2.5) {
+      aftermath += dt;
+      if (aftermath >= 1.35 && $(".overlay").hidden)
         overlay(
           "Game over",
           "Score " + score + " · Wave " + wave,
           "Play again",
         );
-      } else {
-        nextWave += step;
-        const threats = rocks.filter((r) => !r.safe && !r.prime);
-        if (
-          (!threats.length && !shots.length && nextWave > 2.5) ||
-          (threats.length < 3 && nextWave > Math.max(7.5, 15 - wave * 0.32))
-        )
-          spawn();
-      }
     }
-    scene.draw(rocks, shots, clock);
+    scene.draw(rocks, shots, clock + aftermath);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

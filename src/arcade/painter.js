@@ -1,4 +1,7 @@
+import { muzzleFlash, drawEjecta, drawMissile } from "./ejecta.js";
 import { surface, disc, path, label, noise, W, H, tau } from "./drawing.js";
+import { orbitPoint } from "./umbra.js";
+import { drawComet } from "./comet.js";
 import { flight } from "./flight.js";
 
 // Coastline mask from the public-domain Natural Earth 1:110m land polygons.
@@ -85,6 +88,7 @@ export function createPainter(canvas, world, earth, models) {
     ground = world.horizon,
     chart = world.slug === "orbital-defence",
     coast = world.slug === "ember-coast";
+  const umbra = world.slug === "umbra-station";
   const globe = chart ? engravedGlobe() : null;
   function launcher(target) {
     const a =
@@ -172,36 +176,38 @@ export function createPainter(canvas, world, earth, models) {
       }
     }
   }
-  return (rocks, shots, t, scars, history, bursts) => {
+  return (rocks, shots, t, scars, history, bursts, deployments) => {
     begin();
     c.clearRect(0, 0, W, H);
     drawMap(t);
-    for (const scar of scars) {
-      c.save();
-      c.translate(scar.x, scar.y);
-      c.rotate(scar.angle + Math.PI / 2);
-      c.scale(1, 0.55);
-      disc(c, 0, 0, 15, "#e5b383", "#ffd39e");
-      disc(c, 0, 0, 12, "#573839");
-      disc(c, -2, 2, 8, "#261f2b");
-      for (let j = 0; j < 6; j++) {
-        const a = (j * tau) / 6;
-        path(
-          c,
-          [
-            [Math.cos(a) * 13, Math.sin(a) * 13],
-            [Math.cos(a + 0.12) * 22, Math.sin(a + 0.12) * 20],
-          ],
-          "#b7826e",
-          1.4,
-        );
+    if (!umbra)
+      for (const scar of scars) {
+        c.save();
+        c.translate(scar.x, scar.y);
+        c.rotate(scar.angle + Math.PI / 2);
+        c.scale(1, 0.55);
+        disc(c, 0, 0, 15, "#e5b383", "#ffd39e");
+        disc(c, 0, 0, 12, "#573839");
+        disc(c, -2, 2, 8, "#261f2b");
+        for (let j = 0; j < 6; j++) {
+          const a = (j * tau) / 6;
+          path(
+            c,
+            [
+              [Math.cos(a) * 13, Math.sin(a) * 13],
+              [Math.cos(a + 0.12) * 22, Math.sin(a + 0.12) * 20],
+            ],
+            "#b7826e",
+            1.4,
+          );
+        }
+        c.restore();
       }
-      c.restore();
-    }
     const aim = shots[0]?.target ?? rocks.find((r) => !r.safe && !r.prime);
     const mount = launcher(aim);
-    if (!models || !ground)
+    if (!umbra && (!models || !ground))
       weapon(c, mount.x, mount.y, aim, dark, bright, ground);
+    for (const mount of deployments) muzzleFlash(c, mount, t);
     const numeral = Math.max(
       19,
       Math.min(32, Math.round((13 * W) / canvas.clientWidth)),
@@ -212,7 +218,11 @@ export function createPainter(canvas, world, earth, models) {
     }
     c.globalAlpha = 1;
     for (const r of rocks) {
-      const rad = Math.max(12, 24 - r.depth * 4);
+      if (r.orbit?.prime) {
+        drawComet(c, r, earth, t, numeral);
+        continue;
+      }
+      const rad = r.radius ?? Math.max(12, 24 - r.depth * 4);
       const hot = r.prime
         ? "#afffcc"
         : r.safe
@@ -226,21 +236,44 @@ export function createPainter(canvas, world, earth, models) {
           0,
           Math.min(1, ((r.prime ? 2 : 3.2) - r.age) * 2),
         );
-      path(c, r.trail, hot, r.prime ? 2.4 : 1.6);
+      if (!umbra) path(c, r.trail, hot, r.prime ? 2.4 : 1.6);
       if (!r.prime && !r.safe) {
         const future = { ...r },
           pts = [[r.x, r.y]];
-        for (let j = 0; j < 65; j++) {
-          const hit = flight(future, earth, 0.25);
-          pts.push([future.x, future.y]);
-          if (hit) break;
-        }
+        if (r.orbit) {
+          const remaining = Math.min(
+            r.orbit.duration - r.age,
+            r.orbit.capture ? 18 : Infinity,
+          );
+          for (let j = 1; j <= 75; j++)
+            pts.push(orbitPoint(r.orbit, earth, r.age + (remaining * j) / 75));
+        } else
+          for (let j = 0; j < 65; j++) {
+            const hit = flight(future, earth, 0.25);
+            pts.push([future.x, future.y]);
+            if (hit) break;
+          }
         c.setLineDash([2, 5]);
-        path(c, pts, coast ? "#633038a9" : "#f8d8969c");
+        path(
+          c,
+          pts,
+          r.orbit
+            ? r.orbit.lane < 0.5
+              ? "#a8e1ff9f"
+              : "#ddafff9f"
+            : coast
+              ? "#633038a9"
+              : "#f8d8969c",
+        );
         c.setLineDash([]);
       }
       const altitude = Math.hypot(r.x - earth.x, r.y - earth.y) - earth.r;
-      if (!r.prime && !r.safe && altitude < 75) {
+      if (
+        world.slug !== "umbra-station" &&
+        !r.prime &&
+        !r.safe &&
+        altitude < 75
+      ) {
         const heat = 1 - altitude / 75,
           a = Math.atan2(r.vy, r.vx);
         c.save();
@@ -344,6 +377,10 @@ export function createPainter(canvas, world, earth, models) {
       c.restore();
     }
     for (const s of shots) {
+      if (s.mount) {
+        drawMissile(c, s);
+        continue;
+      }
       const p = s.age / s.duration,
         r = s.target,
         n = s.factors.length,
@@ -352,13 +389,9 @@ export function createPainter(canvas, world, earth, models) {
         const bend = (j - (n - 1) / 2) * (coast ? 56 : 82);
         const sample = (u) => {
           const curve = Math.sin(Math.PI * u);
-          const coil =
-            world.slug === "umbra-station"
-              ? Math.sin(u * 26 + j) * curve * 9
-              : 0;
           return [
-            gun.x + (r.x - gun.x) * u + curve * bend + coil,
-            gun.y + (r.y - gun.y) * u - curve * 30 + coil * 0.6,
+            gun.x + (r.x - gun.x) * u + curve * bend,
+            gun.y + (r.y - gun.y) * u - curve * 30,
           ];
         };
         const pts = Array.from({ length: 19 }, (_, i) =>
@@ -406,6 +439,10 @@ export function createPainter(canvas, world, earth, models) {
       }
     }
     for (const b of bursts) {
+      if (umbra) {
+        drawEjecta(c, b, t);
+        continue;
+      }
       const age = t - b.time,
         l = 1 - age / 1.2,
         ink =
