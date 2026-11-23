@@ -1,116 +1,228 @@
-// A split follows a decaying, projected orbit. Progress is in flight seconds,
-// so the visible forecast and the eventual contact use the very same curve.
-import { flight } from "./flight.js";
+// Integrate once per orbit. The ship's sights, dotted forecast and asteroid
+// all sample this same ephemeris, regardless of display frame rate.
+import { answerWindow, difficultyOf, defaultYear } from "./questions.js";
 
-function outerRadius(angle) {
-  return 1 / Math.hypot(Math.cos(angle) / 405, Math.sin(angle) / 192);
-}
+const gravity = 285000;
+const sampleStep = 0.1;
 
-// Arcade captures start at apoapsis. A longer pass sweeps through periapsis
-// and climbs out again before the final descent. Use the same clock for the
-// prediction, motion and impact so a difficult number always gets its window.
-export function capture(earth, wave, difficulty) {
-  const hard = difficulty === "hard";
-  const phase = (wave * 0.61803398875) % 1;
-  const longPass = wave % 3 === 0 || (hard && wave % 2 === 0);
-  const angle = (wave % 2 ? Math.PI : 0) + (phase - 0.5) * 1.16;
-  const direction = wave % 4 < 2 ? -1 : 1;
-  const laps = longPass ? 1.22 + 0.4 * phase : 0.53 + 0.34 * phase;
-  const orbit = {
-    capture: true,
-    angle,
-    height: 0.76 + 0.14 * phase,
-    eccentricity: 0.24 + 0.39 * ((wave * 0.41421356) % 1),
-    sweep: direction * 2 * Math.PI * laps,
-    duration: (hard ? 47 : 27) + (longPass ? 5 : 0) + 7 * phase,
-  };
-  const [x, y] = orbitPoint(orbit, earth, 0);
-  const [nextX, nextY] = orbitPoint(orbit, earth, 0.02);
-  return { x, y, vx: (nextX - x) / 0.02, vy: (nextY - y) / 0.02, orbit };
-}
-
-export function remainingFlight(body, earth) {
-  if (body.orbit) return Math.max(0, body.orbit.duration - body.age);
-  const future = { ...body };
-  let seconds = 0;
-  while (seconds < 90 && !flight(future, earth, 0.04)) seconds += 0.04;
-  return seconds;
-}
-
-export function transfer(body, index, count, earth, prime, timeLeft) {
-  const dx = body.x - earth.x,
-    dy = body.y - earth.y;
-  const angle = Math.atan2(dy, dx);
-  const lane = index / (count - 1);
-  const direction = Math.sign(dx * body.vy - dy * body.vx) || 1;
-  const contact = earth.r + 5;
-  const height = Math.max(
-    0,
-    (Math.hypot(dx, dy) - contact) / (outerRadius(angle) - contact),
-  );
-  const orbit = {
-    angle,
-    height,
-    lane,
-    prime,
-    duration: prime
-      ? 2.55 + 1.15 * lane
-      : Math.max(10, timeLeft + 6.5) + 8 * lane,
-    sweep:
-      direction *
-      (prime
-        ? 0.85 + 3.05 * lane + 0.42 * (body.orbit?.lane ?? 0.5)
-        : 2.35 + 2.8 * lane),
-  };
-  return { x: body.x, y: body.y, vx: body.vx, vy: body.vy, safe: false, orbit };
-}
-
-export function orbitPoint(orbit, earth, seconds) {
-  const u = Math.min(1, Math.max(0, seconds / orbit.duration));
-  if (orbit.capture) {
-    const phase = orbit.sweep * u,
-      e = orbit.eccentricity;
-    const angle =
-      orbit.angle +
-      phase -
-      2 * Math.atan2(e * Math.sin(phase), 1 + e * Math.cos(phase));
-    const contact = earth.r + 5;
-    const excursion =
-      orbit.height * (1 - 0.65 * e * (1 - Math.cos(phase))) * (1 - u ** 1.6);
-    const radius = contact + (outerRadius(angle) - contact) * excursion;
-    return [
-      earth.x + radius * Math.cos(angle),
-      earth.y + radius * Math.sin(angle),
-    ];
+function traceOrbit(planet, initial, contact, duration, prime = false) {
+  const path = [initial.x, initial.y];
+  let { x, y, vx, vy } = initial;
+  let elapsed = 0;
+  // Semi-implicit integration in short substeps resolves fast grazing passes.
+  // Drag rises exponentially down the atmosphere, lowering the next apoapsis.
+  while (elapsed < 300) {
+    let hit = false;
+    for (let i = 0; i < 4; i++) {
+      const dt = sampleStep / 4;
+      const dx = x - planet.x,
+        dy = y - planet.y,
+        r = Math.hypot(dx, dy);
+      const pull = gravity / (r * r * r);
+      const drag = Math.exp(-dt * 0.16 * Math.exp(-(r - planet.r) / 24));
+      vx = (vx - dx * pull * dt) * drag;
+      vy = (vy - dy * pull * dt) * drag;
+      const nx = x + vx * dt,
+        ny = y + vy * dt;
+      const nr = Math.hypot(nx - planet.x, ny - planet.y);
+      if (nr <= contact) {
+        const fraction = Math.max(0, (r - contact) / (r - nr));
+        elapsed += fraction * dt;
+        x += (nx - x) * fraction;
+        y += (ny - y) * fraction;
+        hit = true;
+        break;
+      }
+      x = nx;
+      y = ny;
+      elapsed += dt;
+    }
+    path.push(x, y);
+    if (hit) break;
   }
-  const { prime, lane, height } = orbit;
-  // Prime lanes skim the limb. Composite lanes climb outward and then decay.
-  const angle =
-    orbit.angle +
-    orbit.sweep *
-      (prime ? u * (0.8 + 0.2 * u) : u * (1.65 - 1.4 * u + 0.75 * u * u));
-  const contact = earth.r + 5;
-  const envelope = outerRadius(angle) - contact;
-  const altitude = prime
-    ? height * (1 - u) ** 1.55 +
-      0.1 * Math.sin(Math.PI * u) +
-      (0.025 + 0.045 * lane) * u
-    : (height +
-        0.42 *
-          lane *
-          Math.max(0, 1 - height) *
-          (1 - Math.exp(-seconds * 1.6))) *
-        (1 - u) ** 2 +
-      2 * (0.64 + 0.34 * lane) * u * (1 - u);
-  const radius = contact + envelope * altitude;
-  return [
-    earth.x + radius * Math.cos(angle),
-    earth.y + radius * Math.sin(angle),
-  ];
+  return {
+    path: new Float32Array(path),
+    flightTime: elapsed,
+    duration,
+    prime,
+  };
 }
 
-export function advanceOrbit(body, earth, dt) {
-  const [x, y] = orbitPoint(body.orbit, earth, body.age);
+// The two apsides set orbital energy and angular momentum. A fragment can
+// start anywhere between them, with its radial kick directed in or out.
+function inject(planet, x, y, near, far, direction, outward) {
+  const dx = x - planet.x,
+    dy = y - planet.y,
+    radius = Math.hypot(dx, dy);
+  const angularMomentum = Math.sqrt((2 * gravity * near * far) / (near + far));
+  const tangent = (direction * angularMomentum) / radius;
+  const radial =
+    outward *
+    Math.sqrt(
+      Math.max(
+        0,
+        gravity * (2 / radius - 2 / (near + far)) - tangent * tangent,
+      ),
+    );
+  return {
+    x,
+    y,
+    vx: (radial * dx - tangent * dy) / radius,
+    vy: (radial * dy + tangent * dx) / radius,
+  };
+}
+
+function pose(initial, orbit) {
+  const rate = orbit.flightTime / orbit.duration;
+  return {
+    ...initial,
+    vx: initial.vx * rate,
+    vy: initial.vy * rate,
+    orbit,
+    safe: false,
+  };
+}
+
+const asteroidScale = 0.68;
+const nearPlanetScale = 0.77;
+
+export function visibleRadius(body, planet) {
+  const approach = cometActivity(body, planet);
+  const radius =
+    body.radius * asteroidScale * (1 - (1 - nearPlanetScale) * approach);
+  return body.orbit.prime
+    ? radius *
+        0.45 *
+        Math.max(0, 1 - (body.age ?? 0) / body.orbit.duration) ** 1.3
+    : radius;
+}
+
+function contactRadius(planet, size) {
+  return planet.r + size * asteroidScale * nearPlanetScale * 0.85;
+}
+
+export function capture(planet, wave, difficulty, size, year = defaultYear) {
+  const phase = (wave * 0.61803398875) % 1;
+  const angle =
+    (wave % 2 ? Math.PI : 0) +
+    (phase - 0.5) * 0.28 +
+    (planet.portrait ? Math.PI / 2 : 0);
+  const far = 242 + phase * 44,
+    contact = contactRadius(planet, size);
+  const near = planet.r + 32 + (wave % 3) * 4 + phase * 6;
+  const initial = inject(
+    planet,
+    planet.x + far * Math.cos(angle),
+    planet.y + far * Math.sin(angle),
+    near,
+    far,
+    wave % 4 < 2 ? -1 : 1,
+    -1,
+  );
+  const duration = answerWindow(difficulty, phase, year);
+  const orbit = traceOrbit(planet, initial, contact, duration);
+  orbit.difficulty = difficulty;
+  orbit.year = year;
+  orbit.direction = wave % 4 < 2 ? -1 : 1;
+  return pose(initial, orbit);
+}
+
+export function transfer(
+  body,
+  index,
+  count,
+  planet,
+  prime,
+  timeLeft,
+  size,
+  factorCount = 2,
+) {
+  const lane = index / (count - 1),
+    angle = Math.atan2(body.y - planet.y, body.x - planet.x);
+  const r = Math.hypot(body.x - planet.x, body.y - planet.y);
+  const parentDirection =
+    Math.sign(Math.cos(angle) * body.vy - Math.sin(angle) * body.vx) ||
+    body.orbit.direction;
+  const contact = prime
+    ? Math.min(planet.r + 4, r - 0.5)
+    : contactRadius(planet, size);
+  // Eject material from across the parent's silhouette. Tangential offsets
+  // keep even a last-second split outside the planet. The two sides take
+  // opposite orbital directions and have different apoapsides.
+  const fan = lane * 2 - 1;
+  const power = Math.min(3, Math.max(0, factorCount - 2));
+  const spread = 1 + power * 1.1;
+  const bearing =
+    angle +
+    parentDirection *
+      fan *
+      ((visibleRadius(body, planet) * spread) / r + power * 0.055);
+  const direction = parentDirection * (fan < 0 ? -1 : 1);
+  const near = prime
+    ? Math.min(contact - 2, r * (0.2 + lane * (0.5 + power * 0.08)))
+    : Math.min(r - 8, contact + 7 + lane * 27 * spread);
+  const far = prime
+    ? r + 3 + (1 - lane) * (36 + power * 24)
+    : Math.max(r + 2 + power * 18 * lane, 142 + lane * 45 * spread);
+  const radialVelocity = Math.cos(angle) * body.vx + Math.sin(angle) * body.vy;
+  const outward = !prime && (r < 175 || radialVelocity > 0);
+  const initial = inject(
+    planet,
+    planet.x + r * Math.cos(bearing),
+    planet.y + r * Math.sin(bearing),
+    near,
+    far,
+    direction,
+    outward ? 1 : -1,
+  );
+  const year = body.orbit.year;
+  const difficulty = difficultyOf(body.value / count, year);
+  const duration = prime
+    ? 2.55 + lane * 1.15
+    : Math.max(
+        answerWindow(difficulty, lane, year),
+        difficulty === body.orbit.difficulty ? timeLeft + 3 + 3 * lane : 0,
+      );
+
+  const orbit = traceOrbit(planet, initial, contact, duration, prime);
+  Object.assign(orbit, { lane, angle, direction, difficulty, year });
+  return pose(initial, orbit);
+}
+
+export function orbitPoint(orbit, seconds) {
+  const t =
+    Math.max(0, Math.min(1, seconds / orbit.duration)) * orbit.flightTime;
+  const last = orbit.path.length / 2 - 1;
+  const i = Math.min(Math.floor(t / sampleStep), last - 1);
+  const interval =
+    i === last - 1 ? orbit.flightTime - i * sampleStep : sampleStep;
+  const f = interval > 0 ? Math.min(1, (t - i * sampleStep) / interval) : 1;
+  const k = 2 * i,
+    p = orbit.path;
+  return [p[k] + (p[k + 2] - p[k]) * f, p[k + 1] + (p[k + 3] - p[k + 1]) * f];
+}
+
+// The integrated path tracks the rock's centre. Project its last sample onto
+// the visible surface, where the impact flash and crater are drawn.
+export function impactSite(orbit, planet) {
+  const angle = Math.atan2(
+    orbit.path.at(-1) - planet.y,
+    orbit.path.at(-2) - planet.x,
+  );
+  return {
+    x: planet.x + Math.cos(angle) * (planet.r - 10),
+    y: planet.y + Math.sin(angle) * (planet.r - 10),
+    angle,
+  };
+}
+
+export function nextOrbitSample(orbit, seconds) {
+  const elapsed = Math.min(seconds / orbit.duration, 1) * orbit.flightTime;
+  return Math.floor(elapsed / sampleStep) + 1;
+}
+
+export function advanceOrbit(body, dt) {
+  const [x, y] = orbitPoint(body.orbit, body.age);
   if (dt > 0) {
     body.vx = (x - body.x) / dt;
     body.vy = (y - body.y) / dt;
@@ -128,6 +240,31 @@ export function cometActivity(body, earth) {
 
 export function emissionAt(body, earth) {
   return body.orbit?.prime
-    ? 0.85 * Math.max(0, Math.min(1, (1 - body.age / body.orbit.duration) * 5))
+    ? 0.85 *
+        Math.max(
+          0,
+          Math.min(1, (1 - (body.age ?? 0) / body.orbit.duration) * 5),
+        )
     : cometActivity(body, earth);
+}
+
+// Each sample keeps the heat of the air at emission, including through a
+// subsequent climb out of the atmosphere. Distance is measured along the orbit.
+export const atmosphereHeight = 108;
+
+export function trailSample(body, planet, previous) {
+  const altitude = Math.hypot(body.x - planet.x, body.y - planet.y) - planet.r;
+  const depth = Math.max(0, Math.min(1, 1 - altitude / atmosphereHeight));
+  const heat = depth * depth * (3 - 2 * depth);
+  const distance = previous
+    ? previous[4] + Math.hypot(body.x - previous[0], body.y - previous[1])
+    : 0;
+  return [
+    body.x,
+    body.y,
+    body.age ?? 0,
+    emissionAt(body, planet),
+    distance,
+    heat,
+  ];
 }

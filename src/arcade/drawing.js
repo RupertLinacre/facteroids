@@ -2,7 +2,16 @@ export const TRAIL_LIMIT = 115;
 export const W = 900,
   H = 440,
   tau = Math.PI * 2;
-export function surface(canvas) {
+// Preserve circular orbits on every screen. At the start of a portrait run
+// the long axis of the incoming orbits is vertical.
+export function viewScale(width, height, portrait) {
+  return Math.min(
+    width / (portrait ? 490 : 675),
+    height / (portrait ? 665 : 480),
+  );
+}
+
+export function surface(canvas, planet) {
   const ctx = canvas.getContext("2d");
   return {
     ctx,
@@ -14,7 +23,19 @@ export function surface(canvas) {
         canvas.width = w;
         canvas.height = h;
       }
-      ctx.setTransform(w / W, 0, 0, h / H, 0, 0);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      if (planet) {
+        const scale = viewScale(w, h, planet.portrait);
+        ctx.setTransform(
+          scale,
+          0,
+          0,
+          scale,
+          (w - W * scale) / 2,
+          (h - H * scale) / 2,
+        );
+      } else ctx.setTransform(w / W, 0, 0, h / H, 0, 0);
     },
   };
 }

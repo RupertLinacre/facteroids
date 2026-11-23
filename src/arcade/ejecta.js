@@ -1,107 +1,6 @@
 import { disc, noise, path, tau } from "./drawing.js";
 import { fireAt } from "./deployment.js";
 
-// The nose follows a single predicted intercept. Motor, fins and vapour all
-// use the same launch axis, even while the target moves across the sightline.
-export function drawMissile(c, shot) {
-  if (shot.age < fireAt) return;
-  const { muzzle, intercept, aim, weapon } = shot.mount;
-  const u = (shot.age - fireAt) / (shot.duration - fireAt);
-  const travel =
-    Math.hypot(intercept.x - muzzle.x, intercept.y - muzzle.y) *
-    (0.32 * u + 0.68 * u * u);
-  const { color, chassis, power } = weapon;
-  c.save();
-  c.translate(muzzle.x, muzzle.y);
-  c.rotate(aim);
-  // Reveal the projectile as it clears the barrel, even at point-blank range.
-  c.beginPath();
-  c.rect(0, -32, travel + 2, 64);
-  c.clip();
-  c.translate(travel, 0);
-  c.scale(power, power);
-  const length = 22,
-    aft = -length;
-  function shape(points, fill) {
-    c.beginPath();
-    for (const [i, [x, y]] of points.entries())
-      i ? c.lineTo(x, y) : c.moveTo(x, y);
-    c.closePath();
-    c.fillStyle = fill;
-    c.fill();
-  }
-  const exhaust = 18 + 26 * u;
-  const plume = c.createLinearGradient(aft - exhaust, 0, aft, 0);
-  plume.addColorStop(0, color + "00");
-  plume.addColorStop(0.58, color + "92");
-  plume.addColorStop(1, "#f6ffff");
-  c.shadowColor = color;
-  c.shadowBlur = 7;
-  shape(
-    [
-      [aft, -2.4],
-      [aft - 6, -3.1],
-      [aft - exhaust, 0],
-      [aft - 6, 3.1],
-      [aft, 2.4],
-    ],
-    plume,
-  );
-  c.shadowBlur = 0;
-  const casing = c.createLinearGradient(0, -3.5, 0, 3.5);
-  casing.addColorStop(0, "#8397af");
-  casing.addColorStop(0.3, "#ffffff");
-  casing.addColorStop(0.53, "#ccdaed");
-  casing.addColorStop(1, "#45546d");
-  for (const side of [-1, 1]) {
-    const span = 5.7 + chassis;
-    shape(
-      [
-        [-12, side * 1.8],
-        [-21, side * span],
-        [-24, side * span],
-        [-21, side * 1.6],
-      ],
-      color,
-    );
-    if (chassis === 1)
-      shape(
-        [
-          [-6, side * 2],
-          [-11, side * 4.8],
-          [-21, side * 4.8],
-          [-21, side * 2],
-        ],
-        casing,
-      );
-  }
-  shape(
-    [
-      [0, 0],
-      [-5.5, -2.3],
-      [-10, -3],
-      [-21, -2.8],
-      [aft, -1.7],
-      [aft, 1.7],
-      [-21, 2.8],
-      [-10, 3],
-      [-5.5, 2.3],
-    ],
-    casing,
-  );
-  c.fillStyle = color;
-  c.fillRect(-9, -2.5, 2.2, 5);
-  if (chassis === 2) {
-    for (let i = 0; i < 3; i++) {
-      c.fillStyle = "#473365";
-      c.fillRect(-19 + i * 3, -3.6, 2.2, 7.2);
-      c.fillStyle = color;
-      c.fillRect(-19 + i * 3, -2.8, 1, 5.6);
-    }
-  }
-  c.restore();
-}
-
 // The projectile, its muzzle flash and the 3D rails share one anchored muzzle.
 export function muzzleFlash(c, mount, t) {
   const age = t - mount.time,
@@ -115,7 +14,7 @@ export function muzzleFlash(c, mount, t) {
   c.rotate(mount.aim);
   c.globalCompositeOperation = "lighter";
   c.globalAlpha = charge;
-  const r = (3 + charge * (shot < 0 ? 6 : 19)) * mount.weapon.power,
+  const r = 1.5 + charge * (shot < 0 ? 3 : 8),
     g = c.createRadialGradient(0, 0, 0, 0, 0, r);
   g.addColorStop(0, "#fffbe5");
   g.addColorStop(0.22, mount.weapon.color);
@@ -127,7 +26,7 @@ export function muzzleFlash(c, mount, t) {
       c,
       [
         [-4, 0],
-        [7 + charge * 22, 0],
+        [3 + charge * 9, 0],
       ],
       "#d3fffa",
       2.3,
@@ -135,8 +34,8 @@ export function muzzleFlash(c, mount, t) {
     path(
       c,
       [
-        [0, -11 * charge],
-        [0, 11 * charge],
+        [0, -5 * charge],
+        [0, 5 * charge],
       ],
       "#90e1ff",
       1.4,
@@ -145,35 +44,107 @@ export function muzzleFlash(c, mount, t) {
   c.restore();
 }
 
+function drawImpactDebris(c, event, age) {
+  const { extent, duration, bias, count } = event.strike;
+  const u = age / duration;
+  if (u >= 1) return;
+  c.save();
+  c.translate(event.x, event.y);
+  c.rotate(event.angle);
+  for (let i = 0; i < count; i++) {
+    const seed = i * 17.31 + event.x * 0.11 + event.y;
+    const t = u - noise(seed) * 0.08;
+    if (t <= 0) continue;
+    const angle = (noise(seed + 1) - 0.5) * 2.48;
+    const speed = extent * (1.25 + 2.7 * noise(seed + 2));
+    const up = Math.cos(angle) * speed;
+    const across = Math.sin(angle) * speed + extent * bias * 0.32;
+    const gravity = extent * 3.9;
+    const x = up * t - (gravity * t * t) / 2,
+      y = across * t;
+    if (x < 0) continue;
+    const previous = Math.max(0, t - (i % 3 === 0 ? 0.12 : 0.055));
+    const tx = up * previous - (gravity * previous * previous) / 2,
+      ty = across * previous;
+    const size = Math.max(
+      0.7,
+      Math.sqrt(extent / 105) * (1 + 2.4 * noise(seed + 4)),
+    );
+    c.globalAlpha = Math.min(1, t * 45, (1 - u) * 3.2);
+    if (i % 4 === 0) {
+      c.save();
+      c.translate(x, y);
+      c.rotate(angle + t * (4 + noise(seed) * 8));
+      c.beginPath();
+      c.moveTo(-size, -size * 0.55);
+      c.lineTo(size * 0.4, -size);
+      c.lineTo(size, size * 0.35);
+      c.lineTo(-size * 0.35, size * 0.8);
+      c.closePath();
+      c.fillStyle = "#58352f";
+      c.fill();
+      path(
+        c,
+        [
+          [-size, -size * 0.55],
+          [size * 0.4, -size],
+          [size, size * 0.35],
+        ],
+        t < 0.36 ? "#ffce8d" : "#b7754e",
+        1,
+      );
+      c.restore();
+    } else {
+      const streak = c.createLinearGradient(tx, ty, x, y);
+      streak.addColorStop(0, "#b6583200");
+      streak.addColorStop(0.74, t < 0.33 ? "#ff9b51b0" : "#b6674890");
+      streak.addColorStop(1, t < 0.33 ? "#fff2c4" : "#dfa071");
+      c.strokeStyle = streak;
+      c.lineWidth = size * 0.85;
+      c.beginPath();
+      c.moveTo(tx, ty);
+      const halfStep = (t - previous) / 2;
+      c.quadraticCurveTo(
+        tx + (up - gravity * previous) * halfStep,
+        ty + across * halfStep,
+        x,
+        y,
+      );
+      c.stroke();
+      disc(c, x, y, size * 0.55, t < 0.33 ? "#fff2cf" : "#ec9461");
+    }
+  }
+  c.restore();
+}
+
 export function drawEjecta(c, event, t) {
-  const age = t - event.time,
-    ground = event.type === "impact";
-  const duration = ground ? 2.25 : 0.88,
+  const age = t - event.time;
+  if (event.strike) return drawImpactDebris(c, event, age);
+  const duration = event.weapon.blastDuration,
     progress = age / duration;
   if (progress >= 1) return;
   const power = event.weapon?.power ?? 1;
-  const scale = Math.max(0.65, Math.min(1.55, event.radius / 22)) * power;
+  const tier = event.weapon?.chassis ?? 0;
+  const scale = Math.max(0.65, Math.min(1.55, event.radius / 22));
   c.save();
   c.translate(event.x, event.y);
-  c.rotate(ground ? event.angle : 0);
-  for (let i = 0; i < (ground ? 42 : Math.round(18 * power)); i++) {
+  for (let i = 0; i < Math.round(18 * power + 8 * tier); i++) {
     const seed = i * 7.31 + event.x * 0.13 + event.y * 0.23;
-    const a = ground ? (noise(seed) - 0.5) * Math.PI * 1.28 : noise(seed) * tau;
+    const a = noise(seed) * tau;
     const motion =
-      (ground ? 145 : 100) *
+      (100 + 17 * tier) *
       scale *
       (0.29 + 0.85 * noise(seed + 6)) *
-      (1 - Math.exp(-age * (ground ? 1.7 : 3.8)));
-    const x = Math.cos(a) * motion - (ground ? age * age * 13 : 0),
+      (1 - Math.exp(-age * 3.8));
+    const x = Math.cos(a) * motion,
       y = Math.sin(a) * motion;
-    const size =
-      (ground ? 3.5 : 4.2) * (0.4 + noise(seed + 7)) * (1 - progress);
+    const size = 4.2 * (0.4 + noise(seed + 7)) * (1 - progress);
     c.globalAlpha = Math.min(1, (1 - progress) * 2);
     if (i % 3 === 0) {
       c.save();
       c.translate(x, y);
       c.rotate(seed + age * (3 + noise(seed) * 6));
-      c.fillStyle = ground ? "#492f3c" : "#658fc3";
+      c.fillStyle = "#658fc3";
       c.beginPath();
       c.moveTo(-size, -size * 0.3);
       c.lineTo(size * 0.3, -size * 0.7);
@@ -188,22 +159,22 @@ export function drawEjecta(c, event, t) {
           [size * 0.3, -size * 0.7],
           [size, size * 0.2],
         ],
-        ground ? "#ffad60" : "#cbfaff",
+        "#cbfaff",
         1,
       );
       c.restore();
     } else {
-      const tail = (ground ? 14 : 8) * (1 - progress);
+      const tail = 8 * (1 - progress);
       path(
         c,
         [
           [x - Math.cos(a) * tail, y - Math.sin(a) * tail],
           [x, y],
         ],
-        ground ? "#ed813b" : event.weapon.color,
+        event.weapon.color,
         1.4,
       );
-      disc(c, x, y, 0.65 + size * 0.25, ground ? "#ffe0a3" : "#ddffff");
+      disc(c, x, y, 0.65 + size * 0.25, "#ddffff");
     }
   }
   c.restore();

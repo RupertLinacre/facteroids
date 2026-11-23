@@ -1,25 +1,28 @@
 import * as T from "three";
 import { H, TRAIL_LIMIT } from "./drawing.js";
-import { emissionAt } from "./umbra.js";
+import { emissionAt, trailSample } from "./umbra.js";
 
 // Each row spans a sampled world position. The shader animates detail inside
 // the strip; neither its centreline nor its frame is attached to the nucleus.
 const vertexShader = `
 attribute vec4 deposit;
+attribute float depositedHeat;
 varying vec2 p;
-varying float activity, along;
+varying float activity, along, entryHeat;
 uniform float elapsed, lifetime;
 void main(){
   float age=clamp((elapsed-deposit.x)/lifetime,0.,1.);
   p=vec2(age*13.,deposit.y);
   activity=deposit.z*(1.-smoothstep(.42,1.,age));
   along=deposit.w;
+  entryHeat=depositedHeat;
   gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);
 }`;
 const fragmentShader = `
 varying vec2 p;
-varying float activity, along;
+varying float activity, along, entryHeat;
 uniform float seconds, seed, burning, residual;
+uniform vec3 tint;
 
 float hash(vec2 a){
   vec3 b=fract(vec3(a.xyx)*.1031);
@@ -69,10 +72,20 @@ void main(){
   vec2 grain=fract(cells)-.5;
   float mote=step(.91,hash(floor(cells)))*exp(-dot(grain*vec2(2.6,7.),grain*vec2(2.6,7.)));
   light+=vec3(.42,.78,1.)*mote*bell(dustY,spread)*front*taper;
+  // Palette weights come only from this piece of the wake. Age and flow
+  // modulate its brightness; a turn or climb never recolours old gas.
+  float intensity=max(light.r,max(light.g,light.b));
+  vec3 cold=mix(light,tint*intensity,.58);
   if(burning>.5){
-    float heat=dot(light,vec3(.30,.62,.08));
-    light=vec3(1.65,.37,.07)*heat+vec3(.6,.75,.45)*pow(min(heat,1.),2.);
+    cold=vec3(1.5,.69,.13)*intensity;
   }
+  vec3 amber=intensity*vec3(1.5,.46,.095);
+  vec3 ember=intensity*vec3(1.65,.035,.055);
+  vec3 thermal=mix(amber,ember,smoothstep(.25,.80,entryHeat));
+  light=mix(cold,thermal,smoothstep(.04,.69,entryHeat));
+  // Molten golden spine inside the red ablation sheath of a prime fragment.
+  if(burning>.5)
+    light+=vec3(1.,.70,.26)*bell(ionY-ionAxis,.095+.02*x)*front*taper;
   // Explicit premultiplied output: the canvas also composites over the starfield.
   vec3 emission=1.-exp(-light*activity*residual*2.3);
   float alpha=max(max(emission.r,emission.g),emission.b);
@@ -86,6 +99,7 @@ function createStrip(rock) {
   for (const [name, width] of [
     ["position", 3],
     ["deposit", 4],
+    ["depositedHeat", 1],
   ]) {
     geometry.setAttribute(
       name,
@@ -108,6 +122,9 @@ function createStrip(rock) {
     premultipliedAlpha: true,
     uniforms: {
       elapsed: { value: 0 },
+      tint: {
+        value: new T.Color().setStyle(rock.tint, T.LinearSRGBColorSpace),
+      },
       seconds: { value: 0 },
       residual: { value: 1 },
       lifetime: { value: burning ? 1.25 : 8 },
@@ -129,14 +146,7 @@ function writeStrip(mesh, rock, earth, elapsed) {
   const last = points.at(-1);
   const liveHead =
     !last || Math.hypot(rock.x - last[0], rock.y - last[1]) > 0.001;
-  const head = [
-    rock.x,
-    rock.y,
-    rock.age,
-    emissionAt(rock, earth),
-    (last?.[4] ?? 0) +
-      (last ? Math.hypot(rock.x - last[0], rock.y - last[1]) : 0),
-  ];
+  const head = liveHead ? trailSample(rock, earth, last) : last;
   let start = 0;
   while (
     start < points.length &&
@@ -147,11 +157,11 @@ function writeStrip(mesh, rock, earth, elapsed) {
     rows = end - start;
   geometry.setDrawRange(0, Math.max(0, rows - 1) * 6);
   if (rows < 2) return;
-  const { position, deposit } = geometry.attributes;
+  const { position, deposit, depositedHeat } = geometry.attributes;
   const scale = (rock.radius ?? 22) * (rock.orbit?.prime ? 0.46 : 1);
   const at = (i) => (i === points.length ? head : points[i]);
   for (let i = start; i < end; i++) {
-    const [x, y, age, level, distance] = at(i);
+    const [x, y, age, level, distance, heat] = at(i);
     const prev = at(Math.max(0, i - 1)),
       next = at(Math.min(end - 1, i + 1));
     const dx = next[0] - prev[0],
@@ -168,9 +178,10 @@ function writeStrip(mesh, rock, earth, elapsed) {
         104,
       );
       deposit.setXYZW(vertex, age, side, level, distance / scale);
+      depositedHeat.setX(vertex, heat);
     }
   }
-  position.needsUpdate = deposit.needsUpdate = true;
+  position.needsUpdate = deposit.needsUpdate = depositedHeat.needsUpdate = true;
 }
 
 export function createPlumes(scene, earth) {

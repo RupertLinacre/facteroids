@@ -1,3 +1,4 @@
+import { parseFactorisation } from './factors.js';
 import './style.css';
 
 const app = document.querySelector('#app');
@@ -5,11 +6,11 @@ app.innerHTML = `
   <main class="shell">
     <header><div><p class="eyebrow">A LITTLE MATHS GAME</p><h1>Factoroids<span>.</span></h1></div><button id="restart" class="secondary">Restart game</button></header>
     <div class="intro"><p>Break down the numbers before they reach the ground.</p><button id="help-toggle" class="text-button" aria-expanded="false">How to play <span>↓</span></button></div>
-    <div id="help" class="help" hidden>Type two or more factors separated by spaces or ×, then press Enter. For example, <strong>2 35</strong> turns every 70 into two 35s, while <strong>7 5 2</strong> turns it straight into ten 7s. Factors can be in any order. Prime numbers burn up automatically. Your answer hits every matching asteroid on screen.</div>
+    <div id="help" class="help" hidden>Type two or more factors separated by spaces or ×, then press Enter. Powers work too, such as <strong>2^5</strong> for 32. For example, <strong>2 35</strong> turns every 70 into two 35s, while <strong>7 5 2</strong> turns it straight into ten 7s. Factors can be in any order. Prime numbers burn up automatically. Your answer hits every matching asteroid on screen.</div>
     <section class="game" aria-label="Factoroids game">
       <div class="hud"><div><span>SCORE</span><strong id="score">0</strong></div><div class="hud-right"><span>GROUND HITS</span><strong id="lives">0 / 3</strong></div></div>
       <div id="field" class="field" aria-label="Asteroid field"><svg id="trails" class="trails" preserveAspectRatio="none" viewBox="0 0 100 100" aria-hidden="true"></svg><div class="stars" aria-hidden="true"></div><div class="atmosphere"></div><div class="ground"></div><div class="gun"><div class="barrel"></div><div class="base"></div></div><div id="overlay" class="overlay" hidden><div><p class="eyebrow">GAME OVER</p><h2>The ground took three hits.</h2><p id="final-score"></p><button id="play-again">Play again</button></div></div></div>
-      <form id="answer-form" autocomplete="off"><label for="answer">YOUR FACTORS</label><div class="answer-row"><input id="answer" type="text" inputmode="numeric" placeholder="e.g. 2 35" aria-describedby="feedback" autofocus><button type="submit">Fire <span>↗</span></button></div><p id="feedback" role="status">Enter factors separated by spaces or x.</p></form>
+      <form id="answer-form" autocomplete="off"><label for="answer">YOUR FACTORS</label><div class="answer-row"><input id="answer" type="text" inputmode="text" placeholder="e.g. 2 35" aria-describedby="feedback" autofocus><button type="submit">Fire <span>↗</span></button></div><p id="feedback" role="status">Enter factors separated by spaces or x.</p></form>
     </section>
     <footer><span>BREAK IT DOWN. STAY IN THE GAME.</span><span>MADE FOR CURIOUS MINDS ✳</span></footer>
   </main>`;
@@ -130,12 +131,8 @@ function frame(time) {
 }
 document.querySelector('#answer-form').addEventListener('submit', e => {
   e.preventDefault(); if (!running) return;
-  const raw = input.value.trim();
-  if (!/^\d+(?:(?:\s*[xX×]\s*|\s+)\d+)+$/.test(raw)) { feedback.textContent = 'Type two or more whole numbers separated by spaces or x.'; feedback.className = 'error'; return; }
-  const factors = raw.split(/\s*[xX×]\s*|\s+/).map(Number);
-  if (factors.some(n => !Number.isSafeInteger(n) || n < 2)) { feedback.textContent = 'Every factor needs to be a whole number greater than 1.'; feedback.className = 'error'; return; }
-  const product = factors.reduce((total, factor) => total * factor, 1);
-  if (!Number.isSafeInteger(product)) { feedback.textContent = 'Those factors make a number that is too large.'; feedback.className = 'error'; return; }
+  const { product, factors, error } = parseFactorisation(input.value);
+  if (error) { feedback.textContent = error; feedback.className = 'error'; return; }
   const targets = asteroids.filter(rock => !rock.prime && !rock.targeted && rock.value === product);
   if (!targets.length) { feedback.textContent = `No asteroid with ${product} is available. Try another set of factors.`; feedback.className = 'error'; return; }
   // The largest factor labels each piece; all other factors determine how many pieces.

@@ -108,6 +108,11 @@ export function instrument() {
         play("sine", 145, 39 / count, 0.33 * count, 0.27);
         play("noise", 5500, 740 / count, 0.16 * count, 0.36);
         play("sine", 155, 53, 0.38, 0.24);
+        if (count > 1) play("noise", 2400, 170, 0.57, 0.18, 0.09, 0.05);
+        if (count >= 1.5) {
+          play("sine", 92, 37, 0.82, 0.24, 0.16, 0.05);
+          play("triangle", 990, 1480, 0.62, 0.08, 0.22, 0.1);
+        }
         [742, 1109, 1732].forEach((hz, i) =>
           voice(
             "sine",
@@ -138,12 +143,14 @@ export function instrument() {
           ),
         );
         break;
-      case "impact":
-        play("noise", 320, 75, 1.35, 0.36, 0.13, 0.08);
-        play("sine", 115, 31, 0.83, 0.48);
-        play("noise", 1500, 110, 0.94, 0.45, 0, 0.015);
-        play("triangle", 84, 35, 0.55, 0.17, 0.085);
+      case "impact": {
+        const weight = Math.sqrt(count);
+        play("noise", 320, 75, 1.35 * weight, 0.36 * weight, 0.13, 0.08);
+        play("sine", 115 / weight, 31 / weight, 0.83 * weight, 0.48 * weight);
+        play("noise", 1500, 110, 0.94 * weight, 0.45 * weight, 0, 0.015);
+        play("triangle", 84, 35, 0.55 * weight, 0.17 * weight, 0.085);
         break;
+      }
     }
   }
   return {

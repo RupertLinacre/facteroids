@@ -1,7 +1,7 @@
-import { muzzleFlash, drawEjecta, drawMissile } from "./ejecta.js";
+import { muzzleFlash, drawEjecta } from "./ejecta.js";
 import { surface, disc, path, label, noise, W, H, tau } from "./drawing.js";
-import { orbitPoint } from "./umbra.js";
-import { drawComet } from "./comet.js";
+import { impactSite, nextOrbitSample, visibleRadius } from "./umbra.js";
+import { drawAsteroidNumber, drawComet } from "./comet.js";
 import { flight } from "./flight.js";
 
 // Coastline mask from the public-domain Natural Earth 1:110m land polygons.
@@ -84,7 +84,10 @@ function weapon(c, x, y, target, ink, light, ground) {
   disc(c, x, y, 3, light);
 }
 export function createPainter(canvas, world, earth, models) {
-  const { ctx: c, begin } = surface(canvas),
+  const { ctx: c, begin } = surface(
+      canvas,
+      world.slug === "umbra-station" ? earth : null,
+    ),
     ground = world.horizon,
     chart = world.slug === "orbital-defence",
     coast = world.slug === "ember-coast";
@@ -102,8 +105,82 @@ export function createPainter(canvas, world, earth, models) {
   }
   const dark = coast ? "#4a2430" : "#192f3a",
     bright = coast ? "#ffedb3" : world.color;
+  function drawImpactForecasts(rocks) {
+    const earliest = new Map();
+    const fontSize = Math.min(22, Math.max(11, (10 * W) / canvas.clientWidth));
+    c.save();
+    c.font = "600 " + fontSize + "px ui-monospace, monospace";
+    c.textBaseline = "middle";
+    c.lineJoin = "round";
+    for (const rock of rocks) {
+      if (rock.prime || rock.safe || rock.locked) continue;
+      const site = impactSite(rock.orbit, earth);
+      const color = rock.tint;
+      const points = rock.orbit.path;
+      c.beginPath();
+      c.moveTo(rock.x, rock.y);
+      for (
+        let i = nextOrbitSample(rock.orbit, rock.age) * 2;
+        i < points.length;
+        i += 2
+      )
+        c.lineTo(points[i], points[i + 1]);
+      c.lineTo(site.x, site.y);
+      c.strokeStyle = color;
+      c.globalAlpha = 0.67;
+      c.setLineDash([2, 5]);
+      c.stroke();
+      c.globalAlpha = 1;
+      c.setLineDash([]);
+      const remaining = (rock.orbit.duration - rock.age) / (rock.speed ?? 1);
+      if (
+        !earliest.has(rock.value) ||
+        remaining < earliest.get(rock.value).remaining
+      ) {
+        earliest.set(rock.value, { site, color, remaining });
+      }
+    }
+    const markers = [...earliest.values()];
+    // Offset neighbouring timers while keeping their leaders at the impact sites.
+    for (const side of [-1, 1]) {
+      const group = markers.filter(
+        ({ site }) => (site.x < earth.x ? -1 : 1) === side,
+      );
+      group.sort((a, b) => a.site.y - b.site.y);
+      let previousY = -Infinity,
+        column = 0;
+      for (const { site, color, remaining } of group) {
+        const seconds = Math.ceil(remaining);
+        if (previousY + fontSize * 1.5 + 3 > H) {
+          column++;
+          previousY = -Infinity;
+        }
+        const x = site.x + side * (fontSize + 2 + column * fontSize * 4);
+        const y = Math.max(site.y, previousY + fontSize + 3);
+        previousY = y;
+        path(
+          c,
+          [
+            [site.x, site.y],
+            [x - side * 2, y],
+          ],
+          color,
+          1,
+        );
+        disc(c, site.x, site.y, 2.2, color, "#292335");
+        c.textAlign = side < 0 ? "right" : "left";
+        c.strokeStyle = "#171321";
+        c.lineWidth = 3;
+        c.strokeText(seconds + "s", x, y);
+        c.fillStyle = color;
+        c.fillText(seconds + "s", x, y);
+        c.lineWidth = 1;
+      }
+    }
+    c.restore();
+  }
   function drawMap(t) {
-    if (!ground) {
+    if (!ground && !umbra) {
       c.save();
       c.translate(earth.x, earth.y);
       for (const scale of [1.52, 2.17]) {
@@ -178,8 +255,8 @@ export function createPainter(canvas, world, earth, models) {
   }
   return (rocks, shots, t, scars, history, bursts, deployments) => {
     begin();
-    c.clearRect(0, 0, W, H);
     drawMap(t);
+    if (umbra) drawImpactForecasts(rocks);
     if (!umbra)
       for (const scar of scars) {
         c.save();
@@ -237,34 +314,16 @@ export function createPainter(canvas, world, earth, models) {
           Math.min(1, ((r.prime ? 2 : 3.2) - r.age) * 2),
         );
       if (!umbra) path(c, r.trail, hot, r.prime ? 2.4 : 1.6);
-      if (!r.prime && !r.safe) {
+      if (!umbra && !r.prime && !r.safe) {
         const future = { ...r },
           pts = [[r.x, r.y]];
-        if (r.orbit) {
-          const remaining = Math.min(
-            r.orbit.duration - r.age,
-            r.orbit.capture ? 18 : Infinity,
-          );
-          for (let j = 1; j <= 75; j++)
-            pts.push(orbitPoint(r.orbit, earth, r.age + (remaining * j) / 75));
-        } else
-          for (let j = 0; j < 65; j++) {
-            const hit = flight(future, earth, 0.25);
-            pts.push([future.x, future.y]);
-            if (hit) break;
-          }
+        for (let j = 0; j < 65; j++) {
+          const hit = flight(future, earth, 0.25);
+          pts.push([future.x, future.y]);
+          if (hit) break;
+        }
         c.setLineDash([2, 5]);
-        path(
-          c,
-          pts,
-          r.orbit
-            ? r.orbit.lane < 0.5
-              ? "#a8e1ff9f"
-              : "#ddafff9f"
-            : coast
-              ? "#633038a9"
-              : "#f8d8969c",
-        );
+        path(c, pts, coast ? "#633038a9" : "#f8d8969c");
         c.setLineDash([]);
       }
       const altitude = Math.hypot(r.x - earth.x, r.y - earth.y) - earth.r;
@@ -367,20 +426,21 @@ export function createPainter(canvas, world, earth, models) {
         }
         c.restore();
       }
-      c.font = "bold " + numeral + "px ui-monospace,monospace";
-      c.textAlign = "center";
-      c.textBaseline = "middle";
-      c.lineWidth = 3.7;
-      c.strokeStyle = "#242231";
-      c.strokeText(r.value, r.x, r.y);
-      label(c, r.value, r.x, r.y, numeral, r.prime ? "#efffc8" : "#fff9e9");
+      if (umbra) {
+        drawAsteroidNumber(c, r, visibleRadius(r, earth), numeral, r.tint);
+      } else {
+        c.font = "bold " + numeral + "px ui-monospace,monospace";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.lineWidth = 3.7;
+        c.strokeStyle = "#242231";
+        c.strokeText(r.value, r.x, r.y);
+        label(c, r.value, r.x, r.y, numeral, r.prime ? "#efffc8" : "#fff9e9");
+      }
       c.restore();
     }
     for (const s of shots) {
-      if (s.mount) {
-        drawMissile(c, s);
-        continue;
-      }
+      if (s.mount) continue;
       const p = s.age / s.duration,
         r = s.target,
         n = s.factors.length,

@@ -20,13 +20,13 @@ export const worlds = [
   {
     slug: "umbra-station",
     name: "Umbra Station",
-    note: "More factors arm a bigger gun. Each split buys time. Gold trails mean a safe burn-up.",
+    note: "More factors unlock plasma and nova rounds. Each split buys time. Gold trails mean a safe burn-up.",
     type: "Night-side orbit",
     dimension: "3D",
     color: "#abc5ff",
     horizon: false,
     intro:
-      "Split icy comets into fresh orbits. Prime fragments burn gold on re-entry.",
+      "Split icy comets above a rust-red planet. Prime fragments burn gold on re-entry.",
   },
   {
     slug: "aurora-array",
