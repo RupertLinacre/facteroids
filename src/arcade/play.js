@@ -296,7 +296,7 @@ export async function play(world) {
         if (umbra) r.speed = pace.speed;
         const rockStep = umbra ? step * pace.speed : step;
         r.age += rockStep;
-        const missed = scene.move(r, rockStep);
+        const missed = scene.move(r, rockStep, clock);
         if (r.locked) continue;
         if (missed) {
           rocks.splice(rocks.indexOf(r), 1);

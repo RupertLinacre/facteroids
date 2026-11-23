@@ -18,7 +18,7 @@ export function drawAsteroidNumber(c, rock, radius, size, color) {
 }
 
 export function drawComet(c, r, earth, time, numeral) {
-  const p = r.age / r.orbit.duration,
+  const p = r.burn ?? 0,
     altitude = Math.hypot(r.x - earth.x, r.y - earth.y) - earth.r;
   const heat = Math.min(1, Math.max(0.08, 1 - altitude / 122));
   const fade = Math.min(1, Math.max(0, (1 - p) * 5));
@@ -43,10 +43,10 @@ export function drawComet(c, r, earth, time, numeral) {
       1.5,
     );
   }
-  const radius = (10 + 13 * heat) * fade + 0.1;
+  const radius = (7 + 24 * heat) * fade + 0.1;
   const glow = c.createRadialGradient(r.x, r.y, 0, r.x, r.y, radius);
   glow.addColorStop(0, "#fffdf4");
-  glow.addColorStop(0.14, "#ffedb9");
+  glow.addColorStop(0.14, heat > 0.4 ? "#ffffff" : "#ffedb9");
   glow.addColorStop(0.36, heat > 0.5 ? "#ff96439e" : "#ff755982");
   glow.addColorStop(1, "#676cf900");
   disc(c, r.x, r.y, radius, glow);

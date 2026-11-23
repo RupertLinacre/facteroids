@@ -5,13 +5,20 @@ import { answerWindow, difficultyOf, defaultYear } from "./questions.js";
 const gravity = 285000;
 const sampleStep = 0.1;
 
-function traceOrbit(planet, initial, contact, duration, prime = false) {
+function traceOrbit(
+  planet,
+  initial,
+  contact,
+  duration,
+  prime = false,
+  horizon = 300,
+) {
   const path = [initial.x, initial.y];
   let { x, y, vx, vy } = initial;
   let elapsed = 0;
   // Semi-implicit integration in short substeps resolves fast grazing passes.
   // Drag rises exponentially down the atmosphere, lowering the next apoapsis.
-  while (elapsed < 300) {
+  while (elapsed < horizon) {
     let hit = false;
     for (let i = 0; i < 4; i++) {
       const dt = sampleStep / 4;
@@ -19,7 +26,9 @@ function traceOrbit(planet, initial, contact, duration, prime = false) {
         dy = y - planet.y,
         r = Math.hypot(dx, dy);
       const pull = gravity / (r * r * r);
-      const drag = Math.exp(-dt * 0.16 * Math.exp(-(r - planet.r) / 24));
+      const drag = prime
+        ? 1
+        : Math.exp(-dt * 0.16 * Math.exp(-(r - planet.r) / 24));
       vx = (vx - dx * pull * dt) * drag;
       vy = (vy - dy * pull * dt) * drag;
       const nx = x + vx * dt,
@@ -91,9 +100,7 @@ export function visibleRadius(body, planet) {
   const radius =
     body.radius * asteroidScale * (1 - (1 - nearPlanetScale) * approach);
   return body.orbit.prime
-    ? radius *
-        0.45 *
-        Math.max(0, 1 - (body.age ?? 0) / body.orbit.duration) ** 1.3
+    ? radius * 0.45 * Math.max(0, 1 - (body.burn ?? 0)) ** 1.3
     : radius;
 }
 
@@ -159,13 +166,13 @@ export function transfer(
       ((visibleRadius(body, planet) * spread) / r + power * 0.055);
   const direction = parentDirection * (fan < 0 ? -1 : 1);
   const near = prime
-    ? Math.min(contact - 2, r * (0.2 + lane * (0.5 + power * 0.08)))
+    ? Math.min(r - 1, planet.r + 10 + 18 * lane)
     : Math.min(r - 8, contact + 7 + lane * 27 * spread);
   const far = prime
-    ? r + 3 + (1 - lane) * (36 + power * 24)
+    ? r + 24 + lane * 70 + power * 12
     : Math.max(r + 2 + power * 18 * lane, 142 + lane * 45 * spread);
   const radialVelocity = Math.cos(angle) * body.vx + Math.sin(angle) * body.vy;
-  const outward = !prime && (r < 175 || radialVelocity > 0);
+  const outward = prime ? r < planet.r + 35 : r < 175 || radialVelocity > 0;
   const initial = inject(
     planet,
     planet.x + r * Math.cos(bearing),
@@ -178,13 +185,17 @@ export function transfer(
   const year = body.orbit.year;
   const difficulty = difficultyOf(body.value / count, year);
   const duration = prime
-    ? 2.55 + lane * 1.15
+    ? 5.5 + lane * 2.5
     : Math.max(
         answerWindow(difficulty, lane, year),
         difficulty === body.orbit.difficulty ? timeLeft + 3 + 3 * lane : 0,
       );
 
-  const orbit = traceOrbit(planet, initial, contact, duration, prime);
+  // Follow the same gravity and drag as incoming rocks. A bounded lifetime
+  // lets a wide flyby dissolve while it is still travelling along its ellipse.
+  const horizon = prime ? 15 + 6 * lane : 300;
+  const orbit = traceOrbit(planet, initial, contact, duration, prime, horizon);
+  if (prime) orbit.duration *= Math.min(1, orbit.flightTime / horizon);
   Object.assign(orbit, { lane, angle, direction, difficulty, year });
   return pose(initial, orbit);
 }
@@ -240,11 +251,8 @@ export function cometActivity(body, earth) {
 
 export function emissionAt(body, earth) {
   return body.orbit?.prime
-    ? 0.85 *
-        Math.max(
-          0,
-          Math.min(1, (1 - (body.age ?? 0) / body.orbit.duration) * 5),
-        )
+    ? (0.48 + 1.4 * cometActivity(body, earth)) *
+        Math.min(1, Math.max(0, (1 - (body.burn ?? 0)) * 5))
     : cometActivity(body, earth);
 }
 

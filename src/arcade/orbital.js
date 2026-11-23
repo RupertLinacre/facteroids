@@ -128,8 +128,15 @@ export async function create(canvas, audio, world) {
       }
       audio.note(54, 0.65, "sawtooth", 0.035);
     },
-    move(r, dt) {
+    move(r, dt, clock) {
       const collided = r.orbit ? advanceOrbit(r, dt) : flight(r, earth, dt);
+      if (r.orbit?.prime) {
+        const heat = cometActivity(r, earth);
+        r.burn = Math.min(
+          1,
+          (r.burn ?? 0) + (dt / r.orbit.duration) * (1 + 2.6 * heat),
+        );
+      }
       r.sample += dt;
       if (r.sample > (r.orbit?.prime ? 0.028 : 0.1)) {
         r.trail.push(
@@ -138,7 +145,7 @@ export async function create(canvas, audio, world) {
         if (r.trail.length > TRAIL_LIMIT) r.trail.shift();
         r.sample = 0;
       }
-      if (r.prime) return r.orbit ? collided : r.age > 2;
+      if (r.prime) return r.orbit ? collided || r.burn >= 1 : r.age > 2;
       if (umbra && !r.approachHeard && cometActivity(r, earth) > 0.5) {
         r.approachHeard = true;
         audio.effect("approach", r.x);

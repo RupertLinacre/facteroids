@@ -217,7 +217,7 @@ export function createPlumes(scene, earth) {
           remove(rock, mesh);
           continue;
         }
-        u.elapsed.value = time - rock.born;
+        u.elapsed.value = rock.age + since * (rock.speed ?? 1);
         u.seconds.value = time;
         u.residual.value = residual * residual;
         writeStrip(mesh, rock, earth, u.elapsed.value);

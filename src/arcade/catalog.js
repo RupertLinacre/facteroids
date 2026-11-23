@@ -26,7 +26,7 @@ export const worlds = [
     color: "#abc5ff",
     horizon: false,
     intro:
-      "Split icy comets above a rust-red planet. Prime fragments burn gold on re-entry.",
+      "Split icy comets above a rust-red planet. Prime fragments burn gold as they burn away.",
   },
   {
     slug: "aurora-array",
