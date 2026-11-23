@@ -19,7 +19,7 @@ async function boot() {
     } else {
       document.querySelector("#app").innerHTML = `<main class="collection">
       <header class="mast"><span class="wordmark"><i>✳</i> Factoroids</span><a href="/classic/">Play classic ↗</a></header>
-      <section class="gallery-intro"><h1>Choose your world<span>.</span></h1><p>Break asteroids with their factors. Pick an arcade to play.</p></section>
+      <section class="gallery-intro"><h1>Choose your edition<span>.</span></h1><p>One planetary defence game, four ways to see it. Type factors to split incoming asteroids.</p></section>
       <div class="cards">${worlds.map((w) => `<a class="card" href="/${w.slug}/" style="--accent:${w.color};--art:url('/art/${w.slug}.webp')"><div class="art"></div><div class="card-body"><small>${w.dimension} / ${w.type}</small><h2>${w.name}<b>↗</b></h2><p>${w.intro}</p></div></a>`).join("")}</div>
     </main>`;
     }

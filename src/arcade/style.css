@@ -318,3 +318,66 @@ button.action {
     width: min(94%, 1050px, max(710px, calc((100svh - 310px) * 2.05)));
   }
 }
+.stage {
+  isolation: isolate;
+  background: var(--sky) center center / 100% 100% no-repeat;
+}
+.stage .flight-layer,
+.stage .model-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.stage .model-layer {
+  z-index: 0;
+}
+.stage .flight-layer {
+  z-index: 1;
+}
+.targets {
+  z-index: 2;
+}
+.overlay {
+  z-index: 3;
+}
+.art {
+  aspect-ratio: 2.05;
+}
+.card {
+  transition:
+    transform 0.18s,
+    border-color 0.18s;
+}
+.card:hover {
+  transform: translateY(-2px);
+}
+.cabinet {
+  box-shadow: 0 16px 44px #0004;
+}
+.hud {
+  border-bottom: 1px solid #ffffff20;
+}
+.controls {
+  border-top: 1px solid #ffffff20;
+}
+.cabinet:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 45%, #435154);
+}
+.console[data-edition="ember-coast"] h1 {
+  font-family: Georgia, serif;
+  font-weight: 500;
+}
+.console[data-edition="umbra-station"] h1 {
+  letter-spacing: -0.072em;
+}
+.console[data-edition="orbital-defence"] .cabinet {
+  border-color: #52645b;
+}
+.console[data-edition="ember-coast"] .cabinet {
+  border-color: #826453;
+}
+.console[data-edition="aurora-array"] .cabinet {
+  border-color: #4b7384;
+}
