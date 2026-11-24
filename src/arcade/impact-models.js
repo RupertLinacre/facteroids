@@ -1,5 +1,4 @@
 import * as T from "three";
-import { surfaceStrikeShader } from "./surface-strike.js";
 import { H } from "./drawing.js";
 import { createMissile, positionMissile } from "./missile.js";
 import { barrelLength, launcherScale, fireAt, stowAt } from "./deployment.js";
@@ -201,9 +200,9 @@ export function impactModels(scene) {
         blasts.delete(b);
       }
     for (const b of bursts) {
+      if (b.strike) continue;
       let m = blasts.get(b);
       if (!m) {
-        const strike = b.strike;
         const mat = new T.ShaderMaterial({
           transparent: true,
           depthWrite: false,
@@ -211,9 +210,7 @@ export function impactModels(scene) {
           premultipliedAlpha: true,
           uniforms: {
             age: { value: 0 },
-            lifetime: { value: strike?.duration ?? b.weapon.blastDuration },
-            bias: { value: strike?.bias ?? 0 },
-
+            lifetime: { value: b.weapon.blastDuration },
             rank: { value: b.weapon?.chassis ?? 0 },
             power: { value: b.weapon?.power ?? 1 },
             tint: { value: new T.Color(b.weapon?.color ?? "#9adfff") },
@@ -221,7 +218,7 @@ export function impactModels(scene) {
           },
           vertexShader:
             "varying vec2 p;void main(){p=position.xy;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}",
-          fragmentShader: strike ? surfaceStrikeShader : blastShader,
+          fragmentShader: blastShader,
         });
         m = new T.Mesh(plane, mat);
         m.frustumCulled = false;
@@ -229,8 +226,7 @@ export function impactModels(scene) {
         m.position.set(b.x, H - b.y, 130);
         m.rotation.z = -(b.angle ?? 0);
         m.scale.setScalar(
-          strike?.extent ??
-            Math.max(36, b.radius * 2.65) * (1 + b.weapon.chassis * 0.42),
+          Math.max(36, b.radius * 2.65) * (1 + b.weapon.chassis * 0.42),
         );
         scene.add(m);
         blasts.set(b, m);

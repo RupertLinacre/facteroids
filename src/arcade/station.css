@@ -42,6 +42,9 @@ body:has(.station) {
     0 1px 4px #000,
     0 1px 8px #221009;
 }
+.planet-health[hidden] {
+  display: none;
+}
 .planet-health b {
   font-size: clamp(17px, 2.1vw, 30px);
   font-weight: 700;
@@ -117,6 +120,8 @@ body:has(.station) {
 }
 .menu-tools {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 15px;
 }

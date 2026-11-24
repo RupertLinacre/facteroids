@@ -12,6 +12,7 @@ import {
 import { TRAIL_LIMIT } from "./drawing.js";
 import { surfaceStrike } from "./surface-strike.js";
 import { createPainter } from "./painter.js";
+import { createPlanetFragments } from "./planet-fragments.js";
 
 export async function create(canvas, audio, world) {
   const umbra = world.slug === "umbra-station";
@@ -26,7 +27,8 @@ export async function create(canvas, audio, world) {
   let scars = [],
     history = [],
     bursts = [],
-    deployments = [];
+    deployments = [],
+    destruction = null;
   function burst(x, y, time, type, count, radius = 18, angle = 0, weapon) {
     bursts.push({ x, y, time, type, count, radius, angle, weapon });
   }
@@ -38,6 +40,7 @@ export async function create(canvas, audio, world) {
       scars = [];
       history = [];
       bursts = [];
+      destruction = null;
     },
     spawn(wave, difficulty, radius, year) {
       const initial = umbra
@@ -61,14 +64,18 @@ export async function create(canvas, audio, world) {
           : fragment(r, i, count, earth);
         return {
           ...initial,
+          age: umbra ? -Math.min(0.65, i * 0.035) : 0,
           radius,
           sample: 0,
           trail: [umbra ? trailSample(initial, earth) : [r.x, r.y]],
         };
       });
     },
-    deploy(target, t, count, speed = 1) {
-      const [x, y] = orbitPoint(target.orbit, target.age + interceptAt * speed);
+    deploy(target, t, count, speed = 1, delay = 0) {
+      const [x, y] = orbitPoint(
+        target.orbit,
+        target.age + (interceptAt + delay) * speed,
+      );
       const mount = deploy({ x, y }, earth, t, weaponFor(count));
       deployments.push(mount);
       audio.effect("deploy", mount.x, count);
@@ -106,7 +113,7 @@ export async function create(canvas, audio, world) {
             y: earth.y + Math.sin(angle) * (earth.r - 5),
             angle,
           };
-      const strike = umbra ? surfaceStrike(r, site.angle) : null;
+      const strike = umbra ? surfaceStrike(r) : null;
       const scar = {
         ...site,
         time: t,
@@ -118,7 +125,7 @@ export async function create(canvas, audio, world) {
         ...site,
         time: t,
         type: "impact",
-        count: strike?.count ?? 40,
+        count: 40,
         radius: r.radius ?? 20,
         strike,
       });
@@ -127,6 +134,12 @@ export async function create(canvas, audio, world) {
         return Math.min(55, Math.max(1, Math.round(26 * strike.strength ** 2)));
       }
       audio.note(54, 0.65, "sawtooth", 0.035);
+    },
+    destroyPlanet(t) {
+      destruction = { time: t, fragments: createPlanetFragments(earth) };
+      bursts = [];
+      deployments = [];
+      audio.effect("planet-loss", earth.x);
     },
     move(r, dt, clock) {
       const collided = r.orbit ? advanceOrbit(r, dt) : flight(r, earth, dt);
@@ -161,8 +174,31 @@ export async function create(canvas, audio, world) {
           t - b.time < (b.strike?.duration ?? b.weapon?.blastDuration ?? 1.2),
       );
       deployments = deployments.filter((m) => t - m.time < stowAt);
-      renderer3d?.draw(rocks, t, scars, deployments, bursts, shots);
-      paint(rocks, shots, t, scars, history, bursts, deployments);
+      const visibleRocks = destruction
+        ? destruction.fragments(t - destruction.time)
+        : umbra
+          ? rocks.filter((r) => r.age >= 0)
+          : rocks;
+      const visibleShots = destruction ? [] : shots;
+      renderer3d?.draw(
+        visibleRocks,
+        t,
+        scars,
+        deployments,
+        bursts,
+        visibleShots,
+        destruction,
+      );
+      paint(
+        destruction ? [] : visibleRocks,
+        visibleShots,
+        t,
+        scars,
+        history,
+        bursts,
+        deployments,
+        destruction,
+      );
     },
   };
 }

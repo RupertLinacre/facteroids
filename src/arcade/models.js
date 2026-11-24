@@ -2,6 +2,7 @@ import * as T from "three";
 import { visibleRadius } from "./umbra.js";
 import { createAtmosphere } from "./atmosphere.js";
 import { impactModels } from "./impact-models.js";
+import { planetVisibility } from "./surface-strike.js";
 import { createPlumes } from "./plasma.js";
 import { W, H, noise, tau, viewScale } from "./drawing.js";
 
@@ -19,8 +20,11 @@ function redPlanet(scene, planet) {
   const globe = new T.Mesh(
     new T.SphereGeometry(planet.r, 96, 64),
     new T.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
       uniforms: {
         clock: { value: 0 },
+        planetAlpha: { value: 1 },
         sites: { value: sites },
         scarAges: { value: ages },
         scarCount: { value: 0 },
@@ -35,7 +39,7 @@ function redPlanet(scene, planet) {
         }
         gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*relief,1.);
       }`,
-      fragmentShader: `uniform float clock;uniform vec4 sites[8];uniform float scarAges[8];uniform int scarCount;varying vec3 localDir;varying vec3 n;${hashGL}
+      fragmentShader: `uniform float clock,planetAlpha;uniform vec4 sites[8];uniform float scarAges[8];uniform int scarCount;varying vec3 localDir;varying vec3 n;${hashGL}
     float basin(vec3 p, vec3 site, float radius, float rough){
       vec3 offset=p-normalize(site);
       float d=length(offset)/radius + (rough-.5)*.14;
@@ -91,14 +95,8 @@ function redPlanet(scene, planet) {
       float ray=abs(sin(bearing*11.+rough*3.6));
       float fissures=(1.-smoothstep(.018,.10,ray))*smoothstep(.76,.96,d)*(1.-smoothstep(1.,1.52,d));
       col+=vec3(1.,.31,.05)*(lava*1.5+rim*.85+bowl*.27+fissures)*exp(-age*.17);
-      float wave=age/(.54+size*.95);
-      float shock=exp(-pow((d-wave*4.)*5.,2.))*exp(-wave*2.);
-      float groundFlash=exp(-d*d*.67)*exp(-age*6.);
-      float dustFront=exp(-pow((d-wave*2.7)*2.8,2.))*exp(-wave*1.85);
-      col+=vec3(.99,.64,.26)*(shock+groundFlash*1.3);
-      col=mix(col,vec3(.74,.41,.25)*(.56+rough*.6),dustFront*.65);
     }
-    gl_FragColor=vec4(col,1.);}`,
+    gl_FragColor=vec4(col,planetAlpha);}`,
     }),
   );
   globe.position.set(planet.x, H - planet.y, 0);
@@ -108,7 +106,11 @@ function redPlanet(scene, planet) {
   atmosphere.position.copy(globe.position);
   atmosphere.position.z -= planet.r;
   scene.add(atmosphere);
-  return (t, scars) => {
+  return (t, scars, visibility = 1) => {
+    globe.visible = visibility > 0;
+    atmosphere.visible = visibility > 0;
+    globe.material.uniforms.planetAlpha.value = visibility;
+    atmosphere.material.uniforms.fade.value = visibility;
     atmosphere.material.uniforms.seconds.value = t;
     const uniforms = globe.material.uniforms;
     uniforms.clock.value = t;
@@ -361,7 +363,7 @@ export function createModels(overlay, earth, world) {
     clearWakes() {
       plumes?.clear();
     },
-    draw(rocks, t, scars, deployments, bursts, shots) {
+    draw(rocks, t, scars, deployments, bursts, shots, destruction) {
       if (
         width !== overlay.clientWidth ||
         height !== overlay.clientHeight ||
@@ -380,7 +382,11 @@ export function createModels(overlay, earth, world) {
           cam.updateProjectionMatrix();
         }
       }
-      update(t, scars);
+      update(
+        t,
+        scars,
+        destruction ? planetVisibility(t - destruction.time) : 1,
+      );
       for (const [r, m] of objects)
         if (!rocks.includes(r)) {
           scene.remove(m);

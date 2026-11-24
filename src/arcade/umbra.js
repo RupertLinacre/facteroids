@@ -144,7 +144,7 @@ export function transfer(
   size,
   factorCount = 2,
 ) {
-  const lane = index / (count - 1),
+  const lane = count > 1 ? index / (count - 1) : 0,
     angle = Math.atan2(body.y - planet.y, body.x - planet.x);
   const r = Math.hypot(body.x - planet.x, body.y - planet.y);
   const parentDirection =
@@ -153,50 +153,80 @@ export function transfer(
   const contact = prime
     ? Math.min(planet.r + 4, r - 0.5)
     : contactRadius(planet, size);
-  // Eject material from across the parent's silhouette. Tangential offsets
-  // keep even a last-second split outside the planet. The two sides take
-  // opposite orbital directions and have different apoapsides.
-  const fan = lane * 2 - 1;
+  // Eject across the parent's silhouette with a constant velocity increment
+  // between neighbours. A shared orbit clock preserves that ramp in play.
   const power = Math.min(3, Math.max(0, factorCount - 2));
-  const spread = 1 + power * 1.1;
-  const bearing =
-    angle +
-    parentDirection *
-      fan *
-      ((visibleRadius(body, planet) * spread) / r + power * 0.055);
-  const direction = parentDirection * (fan < 0 ? -1 : 1);
-  const near = prime
-    ? Math.min(r - 1, planet.r + 10 + 18 * lane)
-    : Math.min(r - 8, contact + 7 + lane * 27 * spread);
-  const far = prime
-    ? r + 24 + lane * 70 + power * 12
-    : Math.max(r + 2 + power * 18 * lane, 142 + lane * 45 * spread);
+  const near = Math.min(r - 1, prime ? planet.r + 12 : contact + 7);
+  const far = Math.max(r + 30, planet.r + 100);
   const radialVelocity = Math.cos(angle) * body.vx + Math.sin(angle) * body.vy;
-  const outward = prime ? r < planet.r + 35 : r < 175 || radialVelocity > 0;
-  const initial = inject(
+  const outward = prime
+    ? r < planet.r + 20 || radialVelocity > 0
+    : r < 175 || radialVelocity > 0;
+  const baseline = inject(
     planet,
-    planet.x + r * Math.cos(bearing),
-    planet.y + r * Math.sin(bearing),
+    body.x,
+    body.y,
     near,
     far,
-    direction,
+    parentDirection,
     outward ? 1 : -1,
   );
+  const fan = 2 * lane - 1;
+  const offset =
+    fan *
+    Math.min(
+      0.24,
+      (visibleRadius(body, planet) * (1.9 + power * 0.5)) / r + 0.035,
+    );
+  const bearing = angle + parentDirection * offset;
+  const kick = lane * Math.sqrt(gravity / r) * (0.06 + power * 0.012);
+  const initial = {
+    ...baseline,
+    x: planet.x + r * Math.cos(bearing),
+    y: planet.y + r * Math.sin(bearing),
+    vx:
+      baseline.vx +
+      kick * (-parentDirection * Math.sin(angle) + 0.45 * Math.cos(angle)),
+    vy:
+      baseline.vy +
+      kick * (parentDirection * Math.cos(angle) + 0.45 * Math.sin(angle)),
+  };
   const year = body.orbit.year;
   const difficulty = difficultyOf(body.value / count, year);
-  const duration = prime
-    ? 5.5 + lane * 2.5
+  const baselineDuration = prime
+    ? 6.5
     : Math.max(
-        answerWindow(difficulty, lane, year),
-        difficulty === body.orbit.difficulty ? timeLeft + 3 + 3 * lane : 0,
+        answerWindow(difficulty, 0.5, year),
+        difficulty === body.orbit.difficulty ? timeLeft + 4.5 : 0,
       );
 
   // Follow the same gravity and drag as incoming rocks. A bounded lifetime
   // lets a wide flyby dissolve while it is still travelling along its ellipse.
-  const horizon = prime ? 15 + 6 * lane : 300;
-  const orbit = traceOrbit(planet, initial, contact, duration, prime, horizon);
-  if (prime) orbit.duration *= Math.min(1, orbit.flightTime / horizon);
-  Object.assign(orbit, { lane, angle, direction, difficulty, year });
+  const horizon = prime ? 21 : 300;
+  const reference = traceOrbit(
+    planet,
+    baseline,
+    contact,
+    baselineDuration,
+    prime,
+    horizon,
+  );
+  const orbit = traceOrbit(
+    planet,
+    initial,
+    contact,
+    baselineDuration,
+    prime,
+    horizon,
+  );
+  orbit.duration = (baselineDuration * orbit.flightTime) / reference.flightTime;
+  Object.assign(orbit, {
+    lane,
+    angle,
+    direction: parentDirection,
+    difficulty,
+    year,
+  });
   return pose(initial, orbit);
 }
 

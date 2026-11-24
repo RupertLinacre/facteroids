@@ -151,6 +151,11 @@ export function instrument() {
         play("triangle", 84, 35, 0.55 * weight, 0.17 * weight, 0.085);
         break;
       }
+      case "planet-loss":
+        play("sine", 90, 19, 3.5, 0.48, 0, 0.08);
+        play("noise", 1200, 85, 3.7, 0.42, 0, 0.06);
+        play("noise", 520, 65, 3.9, 0.28, 0.18, 0.25);
+        break;
     }
   }
   return {

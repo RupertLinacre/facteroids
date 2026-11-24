@@ -118,7 +118,7 @@ export function stationLayout(world) {
           <label for="spawn-rate">Spawn rate</label><select id="spawn-rate"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select>
         </div>
         <button type="button" class="action" id="resume">Resume</button>
-        <div class="menu-tools"><button id="restart">Restart</button><button id="sound" aria-pressed="false">Mute</button><a href="/">All editions</a></div>
+        <div class="menu-tools"><button id="restart">Restart</button><button id="sound" aria-pressed="false">Mute</button><a href="/effects-gallery/">Effects gallery</a><a href="/">All editions</a></div>
       </section></div>
     </div>
     <form class="station-controls">

@@ -11,6 +11,7 @@ import { fireAt, interceptAt } from "./deployment.js";
 import { createQuestionDeck, numberForWave } from "./questions.js";
 import { instrument } from "./audio.js";
 import { create } from "./orbital.js";
+import { planetExplosionDuration } from "./surface-strike.js";
 const isPrime = (n) => {
   for (let i = 2; i * i <= n; i++) if (n % i === 0) return false;
   return n >= 2;
@@ -146,6 +147,7 @@ export async function play(world) {
     if (umbra) {
       $("#pause").disabled = false;
       $("#pause").setAttribute("aria-expanded", "false");
+      $(".planet-health").hidden = false;
     }
     disableAnswer(false);
     feedbackUntil = 0;
@@ -176,13 +178,14 @@ export async function play(world) {
       input.focus();
     }
   }
-  function shoot(target, factors, chained = false) {
+  function shoot(target, factors, chained = false, delay = 0) {
     target.locked = true;
+    if (umbra) delay = Math.max(delay, -target.age / pace.speed);
     const mount = umbra
-      ? scene.deploy(target, clock, factors.length, pace.speed)
+      ? scene.deploy(target, clock + delay, factors.length, pace.speed, delay)
       : null;
     const duration = mount ? interceptAt : chained ? 0.32 : 0.65;
-    shots.push({ target, factors, age: 0, duration, mount });
+    shots.push({ target, factors, age: -delay, duration, mount });
     if (!chained && !mount) scene.fire(target, factors.length);
     return mount;
   }
@@ -238,8 +241,20 @@ export async function play(world) {
       feedback("No available asteroid labelled " + product + ".");
       return;
     }
-    const mount = shoot(targets[0], factors);
-    for (const target of targets.slice(1)) shoot(target, factors);
+    // Wait for any still-emerging fragments before starting the volley, so
+    // every missile in the group keeps the same spacing.
+    const startDelay = umbra
+      ? Math.max(
+          0,
+          ...targets.map((target, i) => -target.age / pace.speed - i * 0.1),
+        )
+      : 0;
+    const mount = shoot(targets[0], factors, false, startDelay);
+    targets
+      .slice(1)
+      .forEach((target, i) =>
+        shoot(target, factors, false, umbra ? startDelay + (i + 1) * 0.1 : 0),
+      );
     feedback(
       (mount ? mount.weapon.name + " · " : "") +
         product +
@@ -296,7 +311,8 @@ export async function play(world) {
         if (umbra) r.speed = pace.speed;
         const rockStep = umbra ? step * pace.speed : step;
         r.age += rockStep;
-        const missed = scene.move(r, rockStep, clock);
+        if (r.age < 0) continue;
+        const missed = scene.move(r, Math.min(r.age, rockStep), clock);
         if (r.locked) continue;
         if (missed) {
           rocks.splice(rocks.indexOf(r), 1);
@@ -310,9 +326,10 @@ export async function play(world) {
             );
           }
           readout();
+          if (!health) break;
         }
       }
-      for (const shot of [...shots]) {
+      for (const shot of health ? [...shots] : []) {
         const previous = shot.age;
         shot.age += step;
         if (shot.mount && previous < fireAt && shot.age >= fireAt)
@@ -324,7 +341,11 @@ export async function play(world) {
       }
       if (!health) {
         disableAnswer(true);
-        if (umbra) $("#pause").disabled = true;
+        if (umbra) {
+          $("#pause").disabled = true;
+          $(".planet-health").hidden = true;
+          scene.destroyPlanet(clock);
+        }
         if (!umbra)
           overlay(
             "Game over",
@@ -350,9 +371,14 @@ export async function play(world) {
           spawn();
       }
     }
-    if (umbra && !health && !document.hidden && aftermath < 4) {
-      aftermath += dt;
-      if (aftermath >= 1.35 && $(".overlay").hidden)
+    if (
+      umbra &&
+      !health &&
+      !document.hidden &&
+      aftermath < planetExplosionDuration
+    ) {
+      aftermath = Math.min(planetExplosionDuration, aftermath + dt);
+      if (aftermath >= planetExplosionDuration && $(".overlay").hidden)
         overlay("Planet lost", "", "Play again");
     }
     scene.draw(rocks, shots, clock + aftermath);

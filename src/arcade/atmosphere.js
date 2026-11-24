@@ -2,7 +2,7 @@ import * as T from "three";
 import { atmosphereHeight } from "./umbra.js";
 
 export function createAtmosphere(radius) {
-  const outerRadius = radius + atmosphereHeight;
+  const outerRadius = radius + atmosphereHeight * 1.5;
   return new T.Mesh(
     new T.PlaneGeometry(2 * outerRadius, 2 * outerRadius),
     new T.ShaderMaterial({
@@ -12,13 +12,14 @@ export function createAtmosphere(radius) {
       uniforms: {
         outer: { value: outerRadius / radius },
         seconds: { value: 0 },
+        fade: { value: 1 },
       },
       vertexShader: `varying vec2 rayXY; uniform float outer;
         void main(){
           rayXY=(uv*2.-1.)*outer;
           gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);
         }`,
-      fragmentShader: `varying vec2 rayXY; uniform float outer, seconds;
+      fragmentShader: `varying vec2 rayXY; uniform float outer, seconds, fade;
         void main(){
           float r2=dot(rayXY,rayXY);
           if(r2<1. || r2>=outer*outer) discard;
@@ -37,20 +38,27 @@ export function createAtmosphere(radius) {
             float wave=sin(wind*3.+sin(wind*2.1-normal.z*5.));
             float altitude=h/(outer-1.);
             float edge=1.-smoothstep(.69,1.,altitude);
-            float dust=exp(-altitude*6.4)*(.88+.12*wave);
-            float haze=exp(-altitude*3.1);
-            float opacity=1.-exp(-stride*(dust*.76+haze*.47)*edge);
-            vec3 sky=mix(vec3(.18,.26,.53),vec3(.40,.60,.92),day);
-            vec3 low=mix(vec3(.50,.17,.22),vec3(1.,.51,.25),day);
+            float haze=exp(-altitude*2.45)*(.95+.05*wave);
+            float opacity=1.-exp(-stride*haze*.95*edge);
+            vec3 sky=mix(vec3(.12,.19,.57),vec3(.24,.52,1.),day);
+            vec3 low=mix(vec3(.20,.29,.68),vec3(.34,.69,1.),day);
             vec3 scatter=mix(sky,low,exp(-altitude*5.));
             float crown=exp(-pow((altitude-.18-.022*wave)*14.,2.));
-            scatter+=vec3(.24,.17,.23)*crown;
+            scatter+=vec3(.08,.12,.23)*crown;
             light+=transmission*opacity*scatter*(.44+.98*day);
             transmission*=1.-opacity;
           }
           float alpha=1.-transmission;
-          if(alpha<.003) discard;
-          gl_FragColor=.72*vec4(min(light,vec3(alpha)),alpha);
+          // Concentrate the brightest scattering at the visible limb, with a
+          // softer shoulder that blends into the wide, transparent outer haze.
+          float altitude=(sqrt(r2)-1.)/(outer-1.);
+          float rim=.65*exp(-altitude*32.)+.16*exp(-altitude*7.);
+          float day=smoothstep(-.45,.55,dot(normalize(rayXY),sun.xy));
+          vec3 rimColor=mix(vec3(.16,.31,.87),vec3(.42,.78,1.),day);
+          float outAlpha=1.-(1.-.38*alpha)*(1.-.70*rim);
+          vec3 color=.38*light+rim*rimColor*.66;
+          if(outAlpha<.003) discard;
+          gl_FragColor=fade*vec4(min(color,vec3(outAlpha)),outAlpha);
         }`,
     }),
   );

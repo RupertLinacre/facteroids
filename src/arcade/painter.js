@@ -3,6 +3,8 @@ import { surface, disc, path, label, noise, W, H, tau } from "./drawing.js";
 import { impactSite, nextOrbitSample, visibleRadius } from "./umbra.js";
 import { drawAsteroidNumber, drawComet } from "./comet.js";
 import { flight } from "./flight.js";
+import { impact as galleryImpact } from "./effects/planet-effects.js";
+import { planetExplosionDuration } from "./surface-strike.js";
 
 // Coastline mask from the public-domain Natural Earth 1:110m land polygons.
 function engravedGlobe() {
@@ -253,7 +255,16 @@ export function createPainter(canvas, world, earth, models) {
       }
     }
   }
-  return (rocks, shots, t, scars, history, bursts, deployments) => {
+  return (
+    rocks,
+    shots,
+    t,
+    scars,
+    history,
+    bursts,
+    deployments,
+    destruction,
+  ) => {
     begin();
     drawMap(t);
     if (umbra) drawImpactForecasts(rocks);
@@ -500,7 +511,21 @@ export function createPainter(canvas, world, earth, models) {
     }
     for (const b of bursts) {
       if (umbra) {
-        drawEjecta(c, b, t);
+        if (b.strike) {
+          const scale = 0.65 * b.strike.strength ** 0.8;
+          const age = ((t - b.time) / b.strike.duration) * 3;
+          galleryImpact(
+            c,
+            "combined",
+            { x: earth.x, y: earth.y, r: earth.r - 8 },
+            b.angle,
+            age,
+            scale,
+            false,
+          );
+        } else {
+          drawEjecta(c, b, t);
+        }
         continue;
       }
       const age = t - b.time,
@@ -532,6 +557,24 @@ export function createPainter(canvas, world, earth, models) {
         );
       }
       c.restore();
+    }
+    if (destruction) {
+      const elapsed = t - destruction.time;
+      const directions = [0.18, 1.42, 2.71, 4.02, 5.3, 0.9, 2.48, 4.05, 5.75];
+      for (let i = 0; i < directions.length; i++) {
+        const age =
+          ((elapsed - 0.45 - i * 0.075) * 3) / (planetExplosionDuration - 1.2);
+        if (age < 0 || age >= 3) continue;
+        galleryImpact(
+          c,
+          "combined",
+          { x: earth.x, y: earth.y, r: i < 5 ? earth.r - 8 : 2 },
+          directions[i],
+          age,
+          i < 5 ? 1.15 : 1.35,
+          false,
+        );
+      }
     }
   };
 }
