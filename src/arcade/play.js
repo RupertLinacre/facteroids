@@ -7,7 +7,7 @@ import {
   bindPaceMenu,
 } from "./station-ui.js";
 import "./station.css";
-import { parseFactorisation } from "../factors.js";
+import { formatFactors, parseFactorisation } from "../factors.js";
 import { fireAt, interceptAt } from "./deployment.js";
 import { factorHints, isPrime, spawnInterval, waveSize } from "./questions.js";
 import { Waves } from "./waves.js";
@@ -32,7 +32,7 @@ export async function play() {
   function disableAnswer(disabled) {
     input.disabled = disabled;
     $(".station-keys").disabled = disabled;
-    $(".desktop-send").disabled = disabled;
+    root.querySelectorAll(".clear-answer").forEach(button => button.disabled = disabled);
   }
   let scene;
   try {
@@ -341,7 +341,28 @@ export async function play() {
       input.value = "";
     }
   };
+  input.addEventListener("keydown", (event) => {
+    const position = input.selectionStart;
+    if (event.key === "Backspace" && position === input.selectionEnd &&
+        input.value.slice(position - 3, position) === " × ") {
+      event.preventDefault();
+      input.setRangeText("", position - 3, position, "end");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  function clearAnswer() {
+    input.value = "";
+    input.focus({ preventScroll: true });
+  }
+  root.querySelectorAll(".clear-answer").forEach(button => button.addEventListener("click", clearAnswer));
   input.addEventListener("input", () => {
+    const start = input.selectionStart, end = input.selectionEnd;
+    const value = input.value;
+    const formatted = formatFactors(value);
+    if (formatted !== value) {
+      input.value = formatted;
+      input.setSelectionRange(formatFactors(value.slice(0, start)).length, formatFactors(value.slice(0, end)).length);
+    }
     if (paused || !health) return;
     const { product, error } = parseFactorisation(input.value);
     if (
@@ -354,14 +375,9 @@ export async function play() {
     }
   });
   root.addEventListener("keydown", (event) => {
-    if (
-      event.key === "Escape" &&
-      !$("#team-menu").open &&
-      !team.guest &&
-      health
-    ) {
+    if (event.key === "Escape" && !$("#team-menu").open && !input.disabled) {
       event.preventDefault();
-      pause();
+      clearAnswer();
     }
   });
   $("#restart").onclick = reset;

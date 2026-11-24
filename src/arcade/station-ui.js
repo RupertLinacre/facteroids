@@ -86,15 +86,15 @@ const keys = [
   "9",
   "⌫",
   "0",
-  "Fire",
+  "Clear",
 ];
 const keyNames = { "×": "Multiply", "^": "Power", "⌫": "Backspace" };
 
 export function stationLayout() {
   const keypad = keys
     .map((key) =>
-      key === "Fire"
-        ? '<button type="submit" class="send">Fire ↗</button>'
+      key === "Clear"
+        ? '<button type="button" class="send clear-answer">Clear</button>'
         : `<button type="button" data-key="${key}" aria-label="${keyNames[key] ?? key}">${key}</button>`,
     )
     .join("");
@@ -129,10 +129,10 @@ export function stationLayout() {
       </section></div>
     </div>
     <form class="station-controls">
-      <div class="answer-line"><input id="factors" aria-label="Your factors" aria-describedby="answer-feedback" inputmode="none" maxlength="80" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter factors, e.g. 2 × 5"><button class="send desktop-send" type="submit">Fire ↗</button></div>
+      <div class="answer-line"><input id="factors" aria-label="Your factors" aria-describedby="answer-feedback" inputmode="none" maxlength="80" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter factors, e.g. 2 × 5"><button class="send desktop-send clear-answer" type="button">Clear</button></div>
       <p role="status" id="answer-feedback"></p>
       <fieldset class="station-keys" aria-label="Answer keypad">${keypad}</fieldset>
-      <a href="#team" id="team-link">multipler</a>
+      <a href="#team" id="team-link">multiplayer</a>
     </form>
     <dialog id="team-menu"><h2>Team waves</h2><p>Room code <strong id="team-code"></strong></p>
       <p id="team-notice" role="status"></p><p>You are <b id="team-self"></b></p><p id="team-roster"></p>
@@ -153,7 +153,8 @@ export function bindKeypad(form, input) {
     const end = input.selectionEnd;
     let start = input.selectionStart;
     const insert = key === "⌫" ? "" : key;
-    if (!insert && start === end) start = Math.max(0, start - 1);
+    if (!insert && start === end)
+      start = Math.max(0, start - (input.value.slice(start - 3, start) === " × " ? 3 : 1));
     if (input.value.length - (end - start) + insert.length > input.maxLength)
       return;
     input.setRangeText(insert, start, end, "end");
