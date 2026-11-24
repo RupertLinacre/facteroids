@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
 
-export default defineConfig(({ command }) => ({
-  base: command === "build" ? "/facteroids/" : "/",
+export default defineConfig(({ mode }) => ({
+  base: mode === "production" ? "/facteroids/" : "/",
 }));
