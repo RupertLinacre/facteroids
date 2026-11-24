@@ -102,7 +102,7 @@ export function stationLayout() {
     <div class="stage">
       <canvas class="flight-layer" aria-label="Factoroids orbital playfield"></canvas>
       <div class="planet-health" role="meter" aria-label="Planet health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><b id="health">100%</b><span aria-hidden="true">Health</span></div>
-      <img id="team-view" alt="Shared orbital playfield" hidden><span class="targets sr-only"></span>
+      <span class="targets sr-only"></span>
       <div class="wave-hud" aria-label="Wave progress">
         <div><strong>Wave <b id="wave">1</b></strong><span id="wave-progress"></span></div>
         <small>Answers <b id="wave-answers">0</b> this wave · <b id="session-answers">0</b> this session</small><small id="team-score" hidden></small>

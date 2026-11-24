@@ -346,7 +346,6 @@ body:has(.station) {
 }
 .impact-hint[hidden] { display: none; }
 #team-link { display:block; width:fit-content; margin:4px 0 0 auto; font-size:12px; color:#b5c9e1; }
-#team-view { position:absolute; inset:0; z-index:1; width:100%; height:100%; object-fit:contain; background:#080e18; }
 #team-score { max-width:min(60vw,32rem); max-height:4rem; overflow:auto; }
 #team-menu { color:#e3efff; background:#101e33; border:1px solid #799bbd; border-radius:12px; padding:20px; max-width:92vw; }
 #team-menu::backdrop { background:#050c19c9; }

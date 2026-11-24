@@ -1,5 +1,5 @@
 const endpoint = "https://keep-it-going-relay.robinlinacre.workers.dev/ice";
-const prefix = "factoroids-next-";
+const prefix = "factoroids-events-v1-";
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const newCode = () =>
   Array.from(
@@ -22,13 +22,8 @@ export function teamRoom(root, game) {
     nextPlayer,
     running = false,
     targets = [];
-  let previousFrame = 0,
-    encoding = false,
-    imageUrl;
-  const screen = document.createElement("canvas");
-  const ctx = screen.getContext("2d");
-  const sky = new Image();
-  sky.src = import.meta.env.BASE_URL + "skies/umbra-station.webp";
+  let pending = [],
+    lastSync = 0;
 
   function scores() {
     const rows = Array.from(players, ([id, p]) => p.name + " · " + p.solves);
@@ -51,9 +46,7 @@ export function teamRoom(root, game) {
     players.clear();
     guests.clear();
     targets = [];
-    $("#team-view").hidden = true;
-    if (imageUrl) URL.revokeObjectURL(imageUrl);
-    imageUrl = null;
+    pending = [];
     $("#team-score").hidden = true;
     $("#team-start").hidden = true;
     scores();
@@ -70,19 +63,11 @@ export function teamRoom(root, game) {
       game.reset();
       running = true;
       dialog.close();
-      $("#team-view").hidden = false;
       $("#team-score").hidden = false;
     }
     targets = packet.targets;
+    game.receive(packet);
     game.display(packet);
-    if (packet.image) {
-      const old = imageUrl;
-      imageUrl = URL.createObjectURL(
-        new Blob([packet.image], { type: "image/webp" }),
-      );
-      $("#team-view").src = imageUrl;
-      if (old) URL.revokeObjectURL(old);
-    }
   }
   async function connect(join) {
     close();
@@ -142,7 +127,7 @@ export function teamRoom(root, game) {
             players.clear();
             for (const [id, v] of p.rows) players.set(id, v);
             scores();
-          } else if (p.type === "frame") guestState(p);
+          } else if (p.type === "sync") guestState(p);
           else if (p.type === "accepted") game.accepted();
           else if (p.type === "identity") $("#team-self").textContent = p.name;
         });
@@ -158,11 +143,21 @@ export function teamRoom(root, game) {
         }
         conn.on("open", () => {
           if (token !== generation) return;
+          if (pending.length) {
+            broadcast({ type: "sync", ...game.snapshot(), events: pending });
+            pending = [];
+          }
           guests.set(conn.peer, conn);
           const name = "Player " + nextPlayer++;
           players.set(conn.peer, { name, solves: 0 });
           conn.send({ type: "identity", name });
           sendScores();
+          if (running)
+            conn.send({
+              type: "sync",
+              ...game.snapshot(),
+              checkpoint: game.checkpoint(),
+            });
         });
         conn.on("data", (p) => {
           if (
@@ -246,48 +241,15 @@ export function teamRoom(root, game) {
       if (host?.open && target)
         host.send({ type: "answer", text, target: target.id });
     },
-    frame(t) {
-      if (
-        role !== "host" ||
-        !running ||
-        !guests.size ||
-        encoding ||
-        t - previousFrame < 100
-      )
-        return;
-      previousFrame = t;
-      const layers = [$(".model-layer"), $(".flight-layer")];
-      const ratio = layers[0].clientWidth / Math.max(1, layers[0].clientHeight);
-      const w = Math.round(Math.min(960, 720 * ratio)),
-        h = Math.round(w / ratio);
-      if (!w || !h) return;
-      if (screen.width !== w || screen.height !== h) {
-        screen.width = w;
-        screen.height = h;
-      }
-      ctx.fillStyle = "#08101d";
-      ctx.fillRect(0, 0, w, h);
-      if (sky.naturalWidth) ctx.drawImage(sky, 0, 0, w, h);
-      for (const layer of layers) ctx.drawImage(layer, 0, 0, w, h);
-      const state = game.snapshot(),
-        token = generation;
-      encoding = true;
-      screen.toBlob(
-        async (blob) => {
-          try {
-            if (!blob) return;
-            const image = await blob.arrayBuffer();
-            if (generation !== token) return;
-            for (const c of guests.values())
-              if (c.open && c.dataChannel.bufferedAmount < 65000)
-                c.send({ type: "frame", ...state, image });
-          } finally {
-            encoding = false;
-          }
-        },
-        "image/webp",
-        0.77,
-      );
+    event(event) {
+      if (role === "host" && running && guests.size) pending.push(event);
+    },
+    sync(t, force = false) {
+      if (role !== "host" || !running || !guests.size) return;
+      if (!force && !pending.length && t - lastSync < 3000) return;
+      broadcast({ type: "sync", ...game.snapshot(), events: pending });
+      pending = [];
+      lastSync = t;
     },
   };
 }

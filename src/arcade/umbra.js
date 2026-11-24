@@ -5,7 +5,7 @@ import { answerWindow, difficultyOf } from "./questions.js";
 const gravity = 285000;
 const sampleStep = 0.1;
 
-function traceOrbit(
+export function traceOrbit(
   planet,
   initial,
   contact,
@@ -50,6 +50,9 @@ function traceOrbit(
     if (hit) break;
   }
   return {
+    initial,
+    contact,
+    horizon,
     path: new Float32Array(path),
     flightTime: elapsed,
     duration,

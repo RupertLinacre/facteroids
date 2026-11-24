@@ -32,7 +32,9 @@ export async function play() {
   function disableAnswer(disabled) {
     input.disabled = disabled;
     $(".station-keys").disabled = disabled;
-    root.querySelectorAll(".clear-answer").forEach(button => button.disabled = disabled);
+    root
+      .querySelectorAll(".clear-answer")
+      .forEach((button) => (button.disabled = disabled));
   }
   let scene;
   try {
@@ -115,6 +117,7 @@ export async function play() {
       ...pose,
     };
   }
+  let remoteSpeed = 1;
   function spawn(active) {
     const slot = waves.next(active);
     if (!slot) return;
@@ -122,6 +125,13 @@ export async function play() {
     const radius = 19 + Math.round(grade * 0.14) + (value % 7);
     const position = scene.spawn(++sequence, slot.question, radius);
     rocks.push(rock(value, 0, { ...position, radius, slot }));
+    team.event({
+      kind: "spawn",
+      sequence,
+      question: slot.question,
+      radius,
+      id: nextRockId,
+    });
     spawnClock = 0;
     readout();
   }
@@ -149,6 +159,7 @@ export async function play() {
     input.value = "";
     status.textContent = "";
     $(".wave-banner").hidden = true;
+    team.event({ kind: "reset" });
     spawn(new Set());
     feedback("Split a number into factors. Try a space or × between them.");
     input.focus({ preventScroll: true });
@@ -182,6 +193,7 @@ export async function play() {
     lastTime = undefined;
     $("#pause").setAttribute("aria-expanded", String(paused));
     audio.pause(paused);
+    team.sync(performance.now(), true);
     disableAnswer(paused);
     if (paused) overlay("Paused", "", "Resume");
     else {
@@ -200,6 +212,13 @@ export async function play() {
       delay,
     );
     shots.push({ target, factors, age: -delay, duration: interceptAt, mount });
+    team.event({
+      kind: "shot",
+      id: target.id,
+      factors,
+      delay,
+      age: target.age,
+    });
     return mount;
   }
   function impact(shot) {
@@ -223,6 +242,16 @@ export async function play() {
     if (!isPrime(value)) target.slot.remaining += pieces - 1;
     rocks.push(...children);
     scene.impact(target, children, clock, mount.weapon);
+    team.event({
+      kind: "split",
+      id: target.id,
+      first: children[0].id,
+      value,
+      pieces,
+      levels,
+      pose: { x: target.x, y: target.y, vx: target.vx, vy: target.vy },
+      weapon: mount.weapon,
+    });
     score += points;
     feedback(
       children[0].prime
@@ -299,8 +328,104 @@ export async function play() {
     resume() {
       if (health && paused) pause();
     },
+    checkpoint() {
+      return {
+        scars: scene.scars,
+        rocks: rocks.map(({ orbit, trail, slot, ...body }) => {
+          const { path, ...parameters } = orbit;
+          return { ...body, orbit: parameters };
+        }),
+        shots: shots.map(({ target, ...shot }) => ({ ...shot, id: target.id })),
+      };
+    },
+    receive(s) {
+      clock = s.clock;
+      aftermath = s.aftermath;
+      remoteSpeed = s.speed;
+      paused = s.paused;
+      const wasAlive = health > 0;
+      health = s.health;
+      if (s.checkpoint) {
+        scene.reset(s.portrait, s.checkpoint.scars);
+        rocks = s.checkpoint.rocks.map((r) => ({
+          ...r,
+          orbit: scene.restoreOrbit(r.orbit),
+          trail: [],
+        }));
+        shots = s.checkpoint.shots.map((sh) => ({
+          ...sh,
+          target: rocks.find((r) => r.id === sh.id),
+        }));
+      }
+      for (const e of s.events ?? []) {
+        const target = rocks.find((r) => r.id === e.id);
+        if (e.kind === "reset") {
+          scene.reset(s.portrait);
+          rocks = [];
+          shots = [];
+        }
+        if (e.kind === "spawn")
+          rocks.push(
+            rock(e.question.value, 0, {
+              ...scene.spawn(e.sequence, e.question, e.radius, s.portrait),
+              id: e.id,
+              radius: e.radius,
+            }),
+          );
+        if (!target) continue;
+        if (e.kind === "shot") {
+          target.locked = true;
+          target.age = e.age;
+          const mount = scene.deploy(
+            target,
+            clock + e.delay,
+            e.factors.length,
+            s.speed,
+            e.delay,
+          );
+          shots.push({
+            target,
+            mount,
+            factors: e.factors,
+            age: -e.delay,
+            duration: interceptAt,
+          });
+        }
+        if (e.kind === "split") {
+          Object.assign(target, e.pose);
+          const kids = scene
+            .children(target, e.pieces, isPrime(e.value), e.levels + 1)
+            .map((pose, i) =>
+              rock(e.value, target.depth + e.levels, {
+                ...pose,
+                id: e.first + i,
+              }),
+            );
+          rocks = rocks.filter((r) => r !== target).concat(kids);
+          shots = shots.filter((sh) => sh.target !== target);
+          scene.impact(target, kids, clock, e.weapon);
+        }
+        if (e.kind === "hit") {
+          scene.hit(target, clock);
+          rocks = rocks.filter((r) => r !== target);
+        }
+      }
+      if (!health && (wasAlive || s.checkpoint)) scene.destroyPlanet(clock);
+      // A small clock correction keeps long-running or backgrounded tabs in step.
+      for (const [id, age] of s.ages ?? []) {
+        const body = rocks.find((r) => r.id === id);
+        if (body) body.age = age;
+      }
+      lastTime = undefined;
+    },
     snapshot() {
       return {
+        clock,
+        aftermath,
+        paused: paused || document.hidden,
+        speed: pace.speed,
+        portrait: scene.portrait,
+        ages: rocks.filter((r) => !r.prime).map((r) => [r.id, r.age]),
         targets: rocks
           .filter((r) => !r.prime && !r.locked)
           .map((r) => ({ id: r.id, value: r.value })),
@@ -311,7 +436,7 @@ export async function play() {
         hint: $(".impact-hint").hidden ? "" : $(".impact-hint").textContent,
         message: !health
           ? "Planet lost · waiting for host"
-          : paused
+          : paused || document.hidden
             ? "Host paused"
             : "",
       };
@@ -343,8 +468,11 @@ export async function play() {
   };
   input.addEventListener("keydown", (event) => {
     const position = input.selectionStart;
-    if (event.key === "Backspace" && position === input.selectionEnd &&
-        input.value.slice(position - 3, position) === " × ") {
+    if (
+      event.key === "Backspace" &&
+      position === input.selectionEnd &&
+      input.value.slice(position - 3, position) === " × "
+    ) {
       event.preventDefault();
       input.setRangeText("", position - 3, position, "end");
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -354,14 +482,20 @@ export async function play() {
     input.value = "";
     input.focus({ preventScroll: true });
   }
-  root.querySelectorAll(".clear-answer").forEach(button => button.addEventListener("click", clearAnswer));
+  root
+    .querySelectorAll(".clear-answer")
+    .forEach((button) => button.addEventListener("click", clearAnswer));
   input.addEventListener("input", () => {
-    const start = input.selectionStart, end = input.selectionEnd;
+    const start = input.selectionStart,
+      end = input.selectionEnd;
     const value = input.value;
     const formatted = formatFactors(value);
     if (formatted !== value) {
       input.value = formatted;
-      input.setSelectionRange(formatFactors(value.slice(0, start)).length, formatFactors(value.slice(0, end)).length);
+      input.setSelectionRange(
+        formatFactors(value.slice(0, start)).length,
+        formatFactors(value.slice(0, end)).length,
+      );
     }
     if (paused || !health) return;
     const { product, error } = parseFactorisation(input.value);
@@ -394,14 +528,34 @@ export async function play() {
   reset();
   document.addEventListener("visibilitychange", () => {
     lastTime = undefined;
+    team.sync(performance.now(), true);
   });
   function frame(time) {
+    const dt = (time - (lastTime ?? time)) / 1000;
+    lastTime = time;
     if (team.guest && team.active) {
+      if (!paused && !document.hidden) {
+        if (health) {
+          clock += dt;
+          rocks = rocks.filter((r) => {
+            r.speed = remoteSpeed;
+            r.age += dt * remoteSpeed;
+            if (r.age < 0) return true;
+            const done = scene.move(r, dt * remoteSpeed, clock);
+            return !r.prime || !done;
+          });
+          for (const shot of shots) {
+            const previous = shot.age;
+            shot.age += dt;
+            if (previous < fireAt && shot.age >= fireAt)
+              scene.fire(shot.mount, shot.factors.length);
+          }
+        } else aftermath = Math.min(planetExplosionDuration, aftermath + dt);
+      }
+      scene.draw(rocks, shots, clock + aftermath);
       requestAnimationFrame(frame);
       return;
     }
-    const dt = (time - (lastTime ?? time)) / 1000;
-    lastTime = time;
     if (!paused && health && !document.hidden) {
       const step = dt;
       clock += step;
@@ -424,6 +578,7 @@ export async function play() {
           rocks.splice(rocks.indexOf(r), 1);
           if (!r.prime && !r.safe) {
             waves.resolve(r.slot, true);
+            team.event({ kind: "hit", id: r.id });
             const damage = scene.hit(r, clock);
             health = Math.max(0, health - damage);
             const hint = $(".impact-hint");
@@ -498,7 +653,7 @@ export async function play() {
         );
     }
     scene.draw(rocks, shots, clock + aftermath);
-    team.frame(time);
+    team.sync(time);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

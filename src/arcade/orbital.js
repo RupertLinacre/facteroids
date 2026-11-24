@@ -1,6 +1,7 @@
 import { deploy, interceptAt, stowAt, weaponFor } from "./deployment.js";
 import {
   capture,
+  traceOrbit,
   orbitPoint,
   impactSite,
   transfer,
@@ -23,16 +24,40 @@ export async function create(canvas, audio) {
     deployments = [],
     destruction = null;
   return {
-    reset() {
-      earth.portrait = canvas.clientHeight > canvas.clientWidth;
+    reset(portrait = canvas.clientHeight > canvas.clientWidth, history = []) {
+      earth.portrait = portrait;
       renderer3d.clearWakes();
       deployments = [];
-      scars = [];
+      scars = history;
       bursts = [];
       destruction = null;
     },
-    spawn(sequence, question, radius) {
-      const initial = capture(earth, sequence, question, radius);
+    restoreOrbit({
+      initial,
+      contact,
+      duration,
+      prime,
+      horizon,
+      ...parameters
+    }) {
+      return Object.assign(
+        traceOrbit(earth, initial, contact, duration, prime, horizon),
+        parameters,
+      );
+    },
+    get scars() {
+      return scars;
+    },
+    get portrait() {
+      return earth.portrait;
+    },
+    spawn(sequence, question, radius, portrait = earth.portrait) {
+      const initial = capture(
+        { ...earth, portrait },
+        sequence,
+        question,
+        radius,
+      );
       return {
         ...initial,
         trail: [trailSample(initial, earth)],
