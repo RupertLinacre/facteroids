@@ -3,12 +3,14 @@ name: Deploy Factoroids
 on:
   push:
     branches: [main]
+  workflow_run:
+    workflows: [Check wave preview]
+    branches: [next]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -16,20 +18,44 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run build
+      # A Pages deployment replaces the entire site. Package the two builds together.
+      - id: preview
+        run: |
+          ref=$(git ls-remote --heads origin refs/heads/next)
+          echo "sha=${ref%%[[:space:]]*}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.preview.outputs.sha != ''
+        with:
+          ref: ${{ steps.preview.outputs.sha }}
+          path: preview
+          persist-credentials: false
+      - if: steps.preview.outputs.sha != ''
+        working-directory: preview
+        run: |
+          npm ci
+          npm test
+          npm run build -- --base /facteroids/next/
+          mv dist ../dist/next
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
