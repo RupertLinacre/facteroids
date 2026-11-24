@@ -103,9 +103,15 @@ export function stationLayout() {
       <canvas class="flight-layer" aria-label="Factoroids orbital playfield"></canvas>
       <div class="planet-health" role="meter" aria-label="Planet health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><b id="health">100%</b><span aria-hidden="true">Health</span></div>
       <span class="targets sr-only"></span>
+      <div class="wave-hud" aria-label="Wave progress">
+        <div><strong>Wave <b id="wave">1</b></strong><span id="wave-progress"></span></div>
+        <small>Answers <b id="wave-answers">0</b> this wave · <b id="session-answers">0</b> this session</small>
+      </div>
+      <div class="wave-banner" role="status" hidden></div>
       <button type="button" id="pause" aria-label="Pause and open settings" aria-controls="station-menu" aria-expanded="false" title="Pause and open settings">⚙</button>
       <div class="overlay" hidden><section class="station-menu" id="station-menu"><h2></h2><p></p>
-        <div class="menu-stats">Score <b id="score">0</b> · Wave <b id="wave">1</b></div>
+        <div class="menu-stats">Score <b id="score">0</b></div>
+        <details id="wave-report" hidden><summary>Wave times</summary><ol id="wave-history"></ol></details>
         <div class="year-setting"><label for="base-difficulty">Maths level</label>
           <select id="base-difficulty" aria-describedby="year-hint year-applies">${Object.keys(
             years,

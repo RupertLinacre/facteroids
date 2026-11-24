@@ -12,161 +12,155 @@ export const years = {
   8: "Use longer prime factorisations, powers and occasional unfamiliar pairs.",
 };
 
-function tableProducts(rows, limit) {
-  const values = new Set();
-  for (const a of rows) for (let b = 2; b <= limit; b++) values.add(a * b);
-  return values;
-}
-const earlyTables = tableProducts([2, 5, 10], 10);
-const nextTables = tableProducts([2, 3, 4, 5, 8, 10], 12);
-const allTables = tableProducts([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 12);
+// This is a game-tuning scale, not a statutory attainment score.
+// Score the least demanding way to recognise a factor pair.
+const cues = { 10: 14, 5: 25, 2: 29, 3: 37, 4: 41, 9: 43, 11: 48 };
 
-// Every possible composite child divides the original. Check them all so
-// an unexpected but valid answer cannot strand a younger player off syllabus.
-function playableTables(products) {
-  return [...products].filter((n) => {
-    for (let d = 2; d <= n; d++) {
-      if (n % d || products.has(d)) continue;
-      for (let a = 2; a * a <= d; a++) if (d % a === 0) return false;
+export function difficultyOf(n) {
+  let best = Infinity;
+  for (let a = 2; a * a <= n; a++) {
+    if (n % a) continue;
+    const b = n / a;
+    if (b <= 12) {
+      let recall = a + 1.7 * b - 4;
+      if ([2, 5, 10].some((k) => k === a || k === b)) recall *= 0.58;
+      if (a === b) recall *= 0.8;
+      best = Math.min(best, recall);
     }
-    return true;
-  });
+    // Either side may reveal the pair, e.g. the final zero in 350.
+    for (const [d, q] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const recognition = cues[d] ?? (d <= 12 ? 59 + d : 82 + d / 2);
+      const quotient = 2.5 * Math.log2(q);
+      const familiar = q % 10 === 0 || (q & (q - 1)) === 0;
+      const awkward = q > 12 && isPrime(q);
+      best = Math.min(
+        best,
+        recognition + quotient - (familiar ? 6 : 0) + (awkward ? 9 : 0),
+      );
+    }
+  }
+  return Number.isFinite(best)
+    ? Math.max(1, Math.min(100, Math.round(best)))
+    : 0;
 }
-const year2 = playableTables(earlyTables);
-const year3 = playableTables(nextTables);
-const year4 = [...allTables];
-const pairs = [
-  36, 48, 56, 63, 72, 75, 81, 84, 96, 100, 108, 120, 121, 125, 144,
-];
-const scaled = [
-  64, 75, 80, 96, 100, 120, 125, 128, 140, 150, 160, 180, 200, 225, 250, 300,
-  350,
-];
-const chains = [
-  84, 105, 126, 128, 135, 140, 150, 168, 180, 192, 196, 210, 216, 225, 240, 270,
-  280, 315, 350, 360,
-];
-const powers = [
-  64, 81, 108, 125, 128, 144, 162, 192, 216, 225, 243, 250, 256, 288, 324, 375,
-];
-const mixedPowers = [
-  135, 147, 175, 189, 196, 216, 225, 243, 252, 270, 288, 324, 343, 350, 360,
-  375, 392, 405, 432, 441, 450,
-];
-const threes = [39, 51, 57, 69, 87];
-const unfamiliar = [91, 119, 133, 143, 161, 187];
 
-// Percentages apply to whole families, so adding more unfamiliar products
-// cannot make them more frequent. Start each run with an accessible split.
-const decks = {
-  2: { opening: 10, families: [[100, year2]] },
-  3: {
-    opening: 24,
-    families: [
-      [25, year2],
-      [75, year3.filter((n) => !year2.includes(n))],
-    ],
-  },
-  4: {
-    opening: 42,
-    families: [
-      [25, year3],
-      [75, year4.filter((n) => !nextTables.has(n))],
-    ],
-  },
-  5: {
-    opening: 75,
-    families: [
-      [30, year4],
-      [40, pairs],
-      [30, scaled],
-    ],
-  },
-  6: {
-    opening: 84,
-    families: [
-      [35, year4],
-      [33, scaled],
-      [30, chains],
-      [2, threes],
-    ],
-  },
-  7: {
-    opening: 128,
-    families: [
-      [35, year4],
-      [25, scaled],
-      [20, chains],
-      [16, powers],
-      [3, threes],
-      [1, unfamiliar],
-    ],
-  },
-  8: {
-    opening: 350,
-    families: [
-      [35, year4],
-      [20, scaled],
-      [14, chains],
-      [12, powers],
-      [13, mixedPowers],
-      [4, threes],
-      [2, unfamiliar],
-    ],
-  },
+export function isPrime(n) {
+  for (let d = 2; d * d <= n; d++) if (n % d === 0) return false;
+  return n >= 2;
+}
+
+const rowsByYear = {
+  2: [2, 5, 10],
+  3: [2, 3, 4, 5, 8, 10],
+  4: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
 };
 
-// Time the easiest first move. Reassess the remainder after each split.
-export function difficultyOf(n, year = defaultYear) {
-  const tables = year === 2 ? earlyTables : year === 3 ? nextTables : allTables;
-  if (tables.has(n) || n % 2 === 0 || n % 5 === 0) return "easy";
-  const root = Math.sqrt(n);
-  if (year >= 5 && Number.isInteger(root) && root <= (year >= 8 ? 15 : 12))
-    return "easy";
-  if (year >= 7 && [243, 343].includes(n)) return "medium";
-  if (n % 3 === 0) {
-    // A digit sum reveals the divisor, but 51 ÷ 3 or 153 ÷ 9
-    // still demands an unfamiliar quotient.
-    for (const d of [3, 9])
-      if (n % d === 0 && allTables.has(n / d)) return "medium";
-    return "hard";
-  }
-  return "expert";
-}
+// Years 5–6 extend recall through mental strategies: squares, cubes,
+// friendly multiples and factor chains. Larger prime factors enter in KS3.
+const limits = {
+  2: { max: 100, cap: 12 },
+  3: { max: 120, cap: 25 },
+  4: { max: 144, cap: 29 },
+  5: { max: 350, cap: 49, largestPrime: 11 },
+  6: { max: 400, cap: 60, largestPrime: 19 },
+  7: { max: 450, cap: 85, largestPrime: 23 },
+  8: { max: 500, cap: 100, largestPrime: 29 },
+};
 
-export function answerWindow(difficulty, lane, year = defaultYear) {
-  const [base, spread] = {
-    easy: [15, 5],
-    medium: [30, 8],
-    hard: [52, 12],
-    expert: [64, 12],
-  }[difficulty];
-  const readingTime = year === 2 ? 8 : year === 3 ? 4 : 0;
-  return base + spread * lane + readingTime;
-}
-
-export function createQuestionDeck(year = defaultYear, random = Math.random) {
-  const { opening, families } = decks[year];
-  const recent = [];
-  return function next(active) {
-    const excluded = new Set([...active, ...recent]);
-    const available = families
-      .map(([weight, bank]) => [weight, bank.filter((n) => !excluded.has(n))])
-      .filter(([, bank]) => bank.length);
-    let value = opening;
-    if (recent.length || active.includes(opening)) {
-      if (!available.length) return null;
-      let roll = random() * available.reduce((sum, [w]) => sum + w, 0);
-      for (const [weight, bank] of available) {
-        roll -= weight;
-        if (roll < 0) {
-          value = bank[Math.floor(random() * bank.length)];
-          break;
-        }
+function makeBank(year) {
+  const { max, cap, largestPrime } = limits[year];
+  const rows = rowsByYear[year];
+  const bank = [];
+  for (let n = 4; n <= max; n++) {
+    if (isPrime(n)) continue;
+    let peak = 0;
+    let allowed = true;
+    // Every possible child divides the root. Check them all, including n.
+    for (let d = 2; d <= n && allowed; d++) {
+      if (n % d) continue;
+      if (isPrime(d)) {
+        if (largestPrime && d > largestPrime) allowed = false;
+      } else {
+        peak = Math.max(peak, difficultyOf(d));
+        if (
+          rows &&
+          !rows.some(
+            (r) => d % r === 0 && d / r >= 2 && d / r <= (year === 2 ? 10 : 12),
+          )
+        )
+          allowed = false;
       }
     }
-    recent.push(value);
-    if (recent.length > 5) recent.shift();
-    return { value, difficulty: difficultyOf(value, year) };
-  };
+    if (allowed && peak <= cap)
+      bank.push({ value: n, grade: difficultyOf(n), peak });
+  }
+  return bank;
+}
+const banks = Object.fromEntries(
+  Object.keys(limits).map((y) => [y, makeBank(Number(y))]),
+);
+
+export function waveCeiling(year, wave) {
+  const cap = limits[year].cap;
+  return Math.min(cap, Math.ceil(cap * 0.7) + wave - 1);
+}
+
+export function spawnInterval(year, wave) {
+  // Approaches a floor, so later waves stay playable however long the run.
+  return (7 + 6 / (1 + (wave - 1) * 0.06)) / (1 + Math.max(0, year - 3) * 0.09);
+}
+
+export function answerWindow(grade, ceiling) {
+  return (
+    15 + 45 * Math.max(0, Math.min(1, (grade - 1) / Math.max(1, ceiling - 1)))
+  );
+}
+
+export const waveSize = 6;
+
+function shuffle(items, random) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+export function createWaveDeck(year, wave, recent = [], random = Math.random) {
+  const pool = banks[year].filter((q) => q.peak <= waveCeiling(year, wave));
+  const top = Math.max(...pool.map((q) => q.grade));
+  const bands = [[], [], []];
+  for (const q of pool) {
+    // Preserve familiar tables even in late secondary waves.
+    const band =
+      q.grade <= Math.min(16, top * 0.38)
+        ? 0
+        : q.grade <= Math.min(60, top * 0.72)
+          ? 1
+          : 2;
+    bands[band].push(q);
+  }
+  const order = [0, ...shuffle([0, 1, 1, 2, 2], random)];
+  const selected = [];
+  for (const band of order) {
+    const unused = pool.filter((q) => !selected.includes(q));
+    let options = bands[band].filter((q) => unused.includes(q));
+    if (!options.length) options = unused;
+    const fresh = options.filter((q) => !recent.includes(q.value));
+    if (fresh.length) options = fresh;
+    // Reserve very unfamiliar pairs for occasional stretch questions.
+    const familiar = options.filter((q) => q.grade < 72);
+    if (familiar.length && random() < 0.85) options = familiar;
+    selected.push(options[Math.floor(random() * options.length)]);
+  }
+  const ceiling = Math.max(...selected.map((q) => q.grade));
+  return selected.map((q) => ({
+    value: q.value,
+    grade: q.grade,
+    ceiling,
+    year,
+  }));
 }

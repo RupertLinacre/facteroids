@@ -31,8 +31,8 @@ export async function create(canvas, audio) {
       bursts = [];
       destruction = null;
     },
-    spawn(wave, difficulty, radius, year) {
-      const initial = capture(earth, wave, difficulty, radius, year);
+    spawn(sequence, question, radius) {
+      const initial = capture(earth, sequence, question, radius);
       return {
         ...initial,
         trail: [trailSample(initial, earth)],
@@ -41,7 +41,6 @@ export async function create(canvas, audio) {
       };
     },
     children(r, count, prime, factorCount = 2) {
-      const timeLeft = Math.max(0, r.orbit.duration - r.age);
       const radius = Math.max(7, ((r.radius ?? 24) / Math.cbrt(count)) * 0.94);
       return Array.from({ length: count }, (_, i) => {
         const initial = transfer(
@@ -50,7 +49,6 @@ export async function create(canvas, audio) {
           count,
           earth,
           prime,
-          timeLeft,
           radius,
           factorCount,
         );

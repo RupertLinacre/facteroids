@@ -1,6 +1,6 @@
 // Integrate once per orbit. The ship's sights, dotted forecast and asteroid
 // all sample this same ephemeris, regardless of display frame rate.
-import { answerWindow, difficultyOf, defaultYear } from "./questions.js";
+import { answerWindow, difficultyOf } from "./questions.js";
 
 const gravity = 285000;
 const sampleStep = 0.1;
@@ -108,7 +108,7 @@ function contactRadius(planet, size) {
   return planet.r + size * asteroidScale * nearPlanetScale * 0.85;
 }
 
-export function capture(planet, wave, difficulty, size, year = defaultYear) {
+export function capture(planet, wave, question, size) {
   const phase = (wave * 0.61803398875) % 1;
   const angle =
     (wave % 2 ? Math.PI : 0) +
@@ -126,10 +126,9 @@ export function capture(planet, wave, difficulty, size, year = defaultYear) {
     wave % 4 < 2 ? -1 : 1,
     -1,
   );
-  const duration = answerWindow(difficulty, phase, year);
+  const duration = answerWindow(question.grade, question.ceiling);
   const orbit = traceOrbit(planet, initial, contact, duration);
-  orbit.difficulty = difficulty;
-  orbit.year = year;
+  orbit.ceiling = question.ceiling;
   orbit.direction = wave % 4 < 2 ? -1 : 1;
   return pose(initial, orbit);
 }
@@ -140,7 +139,6 @@ export function transfer(
   count,
   planet,
   prime,
-  timeLeft,
   size,
   factorCount = 2,
 ) {
@@ -191,14 +189,10 @@ export function transfer(
       baseline.vy +
       kick * (parentDirection * Math.cos(angle) + 0.45 * Math.sin(angle)),
   };
-  const year = body.orbit.year;
-  const difficulty = difficultyOf(body.value / count, year);
+  const difficulty = difficultyOf(body.value / count);
   const baselineDuration = prime
     ? 6.5
-    : Math.max(
-        answerWindow(difficulty, 0.5, year),
-        difficulty === body.orbit.difficulty ? timeLeft + 4.5 : 0,
-      );
+    : answerWindow(difficulty, body.orbit.ceiling);
 
   // Follow the same gravity and drag as incoming rocks. A bounded lifetime
   // lets a wide flyby dissolve while it is still travelling along its ellipse.
@@ -224,8 +218,7 @@ export function transfer(
     lane,
     angle,
     direction: parentDirection,
-    difficulty,
-    year,
+    ceiling: body.orbit.ceiling,
   });
   return pose(initial, orbit);
 }

@@ -8,14 +8,15 @@ import {
 import "./station.css";
 import { parseFactorisation } from "../factors.js";
 import { fireAt, interceptAt } from "./deployment.js";
-import { createQuestionDeck } from "./questions.js";
+import { isPrime, spawnInterval, waveSize } from "./questions.js";
+import { Waves } from "./waves.js";
 import { instrument } from "./audio.js";
 import { create } from "./orbital.js";
 import { planetExplosionDuration } from "./surface-strike.js";
-const isPrime = (n) => {
-  for (let i = 2; i * i <= n; i++) if (n % i === 0) return false;
-  return n >= 2;
-};
+function elapsed(seconds) {
+  const whole = Math.round(seconds);
+  return Math.floor(whole / 60) + "m " + (whole % 60) + "s";
+}
 
 export async function play() {
   document.title = "Factoroids";
@@ -25,7 +26,7 @@ export async function play() {
   const $ = (s) => root.querySelector(s);
   const canvas = $("canvas"),
     input = $("#factors"),
-    status = $("[role=status]"),
+    status = $("#answer-feedback"),
     audio = instrument();
   function disableAnswer(disabled) {
     input.disabled = disabled;
@@ -56,10 +57,25 @@ export async function play() {
   bindKeypad($("form"), input);
   bindYearMenu(root, year, (next) => {
     year = next;
-    nextQuestion = createQuestionDeck(year);
+    waves.changeYear(year);
   });
-  let nextQuestion, aftermath, feedbackUntil;
-  let rocks, shots, score, health, wave, clock, nextWave, paused, lastTime;
+  let waves,
+    aftermath,
+    feedbackUntil,
+    sessionAnswers = 0;
+  const sessionKey = "factoroids:wave-answers";
+  try {
+    sessionAnswers = Number(sessionStorage.getItem(sessionKey)) || 0;
+  } catch {}
+  let rocks,
+    shots,
+    score,
+    health,
+    sequence,
+    clock,
+    spawnClock,
+    paused,
+    lastTime;
   function feedback(message) {
     status.textContent = message;
     feedbackUntil = clock + 4;
@@ -70,7 +86,11 @@ export async function play() {
     const meter = $(".planet-health");
     meter.setAttribute("aria-valuenow", String(health));
     meter.dataset.critical = String(health <= 25);
-    $("#wave").textContent = wave;
+    $("#wave").textContent = waves.number;
+    $("#wave-progress").textContent =
+      waves.cleared + "/" + waveSize + " cleared";
+    $("#wave-answers").textContent = waves.answers;
+    $("#session-answers").textContent = sessionAnswers;
     const counts = new Map();
     rocks
       .filter((r) => !r.prime && !r.locked && !r.safe)
@@ -91,32 +111,28 @@ export async function play() {
       ...pose,
     };
   }
-  function spawn() {
-    const active = rocks.filter((r) => !r.safe && !r.prime).map((r) => r.value);
-    const question = nextQuestion(active);
-    if (!question) return;
-    const v = question.value;
-    wave++;
-    const radius =
-      { easy: 19, medium: 25, hard: 31, expert: 33 }[question.difficulty] +
-      (v % 7);
-    const position = scene.spawn(wave, question.difficulty, radius, year);
-    position.radius = radius;
-    rocks.push(rock(v, 0, position));
-    nextWave = 0;
+  function spawn(active) {
+    const slot = waves.next(active);
+    if (!slot) return;
+    const { value, grade } = slot.question;
+    const radius = 19 + Math.round(grade * 0.14) + (value % 7);
+    const position = scene.spawn(++sequence, slot.question, radius);
+    rocks.push(rock(value, 0, { ...position, radius, slot }));
+    spawnClock = 0;
     readout();
   }
   function reset() {
     aftermath = 0;
-    nextQuestion = createQuestionDeck(year);
+    waves = new Waves(year);
     audio.reset();
     scene.reset();
     rocks = [];
     shots = [];
     score = 0;
     health = 100;
-    wave = 0;
+    sequence = 0;
     clock = 0;
+    lastTime = undefined;
     paused = false;
     $(".overlay").hidden = true;
     $("#pause").disabled = false;
@@ -126,10 +142,28 @@ export async function play() {
     feedbackUntil = 0;
     input.value = "";
     status.textContent = "";
-    spawn();
+    $(".wave-banner").hidden = true;
+    spawn(new Set());
+    feedback("Split a number into factors. Try a space or × between them.");
     input.focus({ preventScroll: true });
   }
   function overlay(title, message, button) {
+    const history = $("#wave-history");
+    history.replaceChildren(
+      ...waves.times.map((time, i) => {
+        const row = document.createElement("li");
+        row.textContent = "Wave " + (i + 1);
+        const duration = document.createElement("b");
+        duration.textContent = elapsed(time);
+        row.append(duration);
+        return row;
+      }),
+    );
+    $("#wave-report").hidden = !waves.times.length;
+    $("#wave-report summary").textContent =
+      waves.times.length +
+      (waves.times.length === 1 ? " wave cleared" : " waves cleared");
+    $("#wave-report").open = !health;
     $(".overlay h2").textContent = title;
     $(".overlay p").textContent = message;
     $("#resume").textContent = button;
@@ -139,6 +173,7 @@ export async function play() {
   function pause() {
     if (!health) return;
     paused = !paused;
+    lastTime = undefined;
     $("#pause").setAttribute("aria-expanded", String(paused));
     audio.pause(paused);
     disableAnswer(paused);
@@ -176,11 +211,13 @@ export async function play() {
     rocks.splice(rocks.indexOf(target), 1);
     const children = scene
       .children(target, pieces, isPrime(value), factors.length)
-      .map((pose) => rock(value, target.depth + levels, pose));
+      .map((pose) =>
+        rock(value, target.depth + levels, { ...pose, slot: target.slot }),
+      );
+    if (!isPrime(value)) target.slot.remaining += pieces - 1;
     rocks.push(...children);
     scene.impact(target, children, clock, mount.weapon);
     score += points;
-    nextWave = 0;
     feedback(
       children[0].prime
         ? value + " is prime. Atmosphere burn-up!"
@@ -215,6 +252,14 @@ export async function play() {
       0,
       ...targets.map((target, i) => -target.age / pace.speed - i * 0.1),
     );
+    waves.answers++;
+    sessionAnswers++;
+    try {
+      sessionStorage.setItem(sessionKey, String(sessionAnswers));
+    } catch {}
+    if (isPrime(factors.at(-1))) {
+      for (const target of targets) waves.resolve(target.slot);
+    }
     const mount = shoot(targets[0], factors, startDelay);
     targets
       .slice(1)
@@ -254,8 +299,11 @@ export async function play() {
   for (const event of ["keydown", "pointerdown"])
     root.addEventListener(event, audio.unlock, { once: true });
   reset();
+  document.addEventListener("visibilitychange", () => {
+    lastTime = undefined;
+  });
   function frame(time) {
-    const dt = Math.min(0.045, (time - (lastTime ?? time)) / 1000);
+    const dt = (time - (lastTime ?? time)) / 1000;
     lastTime = time;
     if (!paused && health && !document.hidden) {
       const step = dt;
@@ -274,6 +322,7 @@ export async function play() {
         if (missed) {
           rocks.splice(rocks.indexOf(r), 1);
           if (!r.prime && !r.safe) {
+            waves.resolve(r.slot, true);
             const damage = scene.hit(r, clock);
             health = Math.max(0, health - damage);
             feedback(`${r.value} hit · −${damage}% health`);
@@ -298,24 +347,46 @@ export async function play() {
         $(".planet-health").hidden = true;
         scene.destroyPlanet(clock);
       } else {
-        nextWave +=
-          step * pace["spawn-rate"] * (1 + Math.max(0, year - 3) * 0.12);
-        const threats = rocks.filter((r) => !r.safe && !r.prime);
+        if (waves.advance(clock)) {
+          const banner = $(".wave-banner");
+          banner.textContent =
+            "Wave " +
+            waves.times.length +
+            " cleared · " +
+            elapsed(waves.times.at(-1));
+          banner.hidden = false;
+          readout();
+        }
+        if (clock - waves.started > 3) $(".wave-banner").hidden = true;
+        spawnClock += step * pace["spawn-rate"];
+        const active = new Set(
+          rocks
+            .filter((r) => !r.safe && !r.prime && !r.locked)
+            .map((r) => r.value),
+        );
         if (
-          (!threats.length &&
-            !shots.length &&
-            !rocks.some((r) => r.orbit?.prime) &&
-            nextWave > 2.5) ||
-          (new Set(threats.map((r) => r.value)).size < (year >= 6 ? 4 : 3) &&
-            nextWave > (wave === 1 ? 7 : 11))
-        )
-          spawn();
+          !active.size ||
+          (active.size < (year >= 6 ? 4 : 3) &&
+            spawnClock >= spawnInterval(year, waves.number))
+        ) {
+          spawn(active);
+        }
       }
     }
     if (!health && !document.hidden && aftermath < planetExplosionDuration) {
       aftermath = Math.min(planetExplosionDuration, aftermath + dt);
       if (aftermath >= planetExplosionDuration && $(".overlay").hidden)
-        overlay("Planet lost", "", "Play again");
+        overlay(
+          "Planet lost",
+          "Wave " +
+            waves.number +
+            " · " +
+            waves.cleared +
+            "/" +
+            waveSize +
+            " cleared",
+          "Play again",
+        );
     }
     scene.draw(rocks, shots, clock + aftermath);
     requestAnimationFrame(frame);

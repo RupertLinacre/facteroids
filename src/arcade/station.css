@@ -257,3 +257,72 @@ body:has(.station) {
 .station-menu {
   gap: 10px;
 }
+
+.wave-hud,
+.wave-banner {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid #aaccff30;
+  background: #091323d9;
+  border-radius: 9px;
+}
+.wave-hud {
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  padding: 7px 11px;
+  font-size: 13px;
+}
+.wave-hud strong {
+  color: #d7eaff;
+  margin-right: 12px;
+}
+.wave-hud small {
+  display: block;
+  color: #b7c8dc;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.wave-banner {
+  top: max(75px, 12%);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 8px 14px;
+  color: #adf2d7;
+}
+.station .overlay {
+  display: block;
+}
+.station .overlay[hidden] {
+  display: none;
+}
+.station-menu {
+  min-height: 100%;
+  align-content: safe center;
+}
+#wave-report {
+  width: min(270px, 100%);
+  color: #d0e6fa;
+  text-align: left;
+  font-size: 14px;
+}
+#wave-report summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+#wave-history {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 7rem;
+  overflow-y: auto;
+  font-variant-numeric: tabular-nums;
+}
+#wave-history li {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 6px;
+  border-bottom: 1px solid #aaccff2c;
+}
