@@ -47,6 +47,22 @@ export function difficultyOf(n) {
     : 0;
 }
 
+// Prefer familiar divisibility cues and smaller quotients when suggesting a split.
+export function factorHints(n) {
+  const pairs = [];
+  for (let a = 2; a * a <= n; a++) {
+    if (n % a) continue;
+    const b = n / a;
+    const rank = (d, q) => {
+      const cue = { 10: 0, 2: 1, 5: 2, 3: 3, 9: 3, 4: 4, 8: 5 };
+      return (cue[d] ?? (d <= 12 ? 6 : 10)) * 100 + q;
+    };
+    pairs.push({ a, b, score: Math.min(rank(a, b), rank(b, a)) });
+  }
+  return pairs.sort((a, b) => a.score - b.score).slice(0, 2)
+    .map(({ a, b }) => a + " × " + b);
+}
+
 export function isPrime(n) {
   for (let d = 2; d * d <= n; d++) if (n % d === 0) return false;
   return n >= 2;

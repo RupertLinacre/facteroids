@@ -326,3 +326,22 @@ body:has(.station) {
   padding: 4px 6px;
   border-bottom: 1px solid #aaccff2c;
 }
+
+.impact-hint {
+  position: absolute;
+  z-index: 2;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 9px 14px;
+  border: 1px solid #ffba85a0;
+  border-radius: 8px;
+  background: #21152aee;
+  color: #fff3df;
+  text-align: center;
+  font-weight: 700;
+  font-size: clamp(14px, 2vw, 18px);
+  pointer-events: none;
+}
+.impact-hint[hidden] { display: none; }

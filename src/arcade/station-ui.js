@@ -108,6 +108,7 @@ export function stationLayout() {
         <small>Answers <b id="wave-answers">0</b> this wave · <b id="session-answers">0</b> this session</small>
       </div>
       <div class="wave-banner" role="status" hidden></div>
+      <div class="impact-hint" role="status" aria-live="polite" hidden></div>
       <button type="button" id="pause" aria-label="Pause and open settings" aria-controls="station-menu" aria-expanded="false" title="Pause and open settings">⚙</button>
       <div class="overlay" hidden><section class="station-menu" id="station-menu"><h2></h2><p></p>
         <div class="menu-stats">Score <b id="score">0</b></div>

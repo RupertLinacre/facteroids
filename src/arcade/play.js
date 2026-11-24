@@ -8,7 +8,7 @@ import {
 import "./station.css";
 import { parseFactorisation } from "../factors.js";
 import { fireAt, interceptAt } from "./deployment.js";
-import { isPrime, spawnInterval, waveSize } from "./questions.js";
+import { factorHints, isPrime, spawnInterval, waveSize } from "./questions.js";
 import { Waves } from "./waves.js";
 import { instrument } from "./audio.js";
 import { create } from "./orbital.js";
@@ -62,6 +62,7 @@ export async function play() {
   let waves,
     aftermath,
     feedbackUntil,
+    impactHintUntil,
     sessionAnswers = 0;
   const sessionKey = "factoroids:wave-answers";
   try {
@@ -140,6 +141,8 @@ export async function play() {
     $(".planet-health").hidden = false;
     disableAnswer(false);
     feedbackUntil = 0;
+    impactHintUntil = 0;
+    $(".impact-hint").hidden = true;
     input.value = "";
     status.textContent = "";
     $(".wave-banner").hidden = true;
@@ -312,6 +315,10 @@ export async function play() {
         status.textContent = "";
         feedbackUntil = 0;
       }
+      if (impactHintUntil && clock >= impactHintUntil) {
+        $(".impact-hint").hidden = true;
+        impactHintUntil = 0;
+      }
       for (const r of [...rocks]) {
         r.speed = pace.speed;
         const rockStep = step * pace.speed;
@@ -325,7 +332,10 @@ export async function play() {
             waves.resolve(r.slot, true);
             const damage = scene.hit(r, clock);
             health = Math.max(0, health - damage);
-            feedback(`${r.value} hit · −${damage}% health`);
+            const hint = $(".impact-hint");
+            hint.textContent = r.value + " hit · " + r.value + " = " + factorHints(r.value).join(" or ");
+            hint.hidden = false;
+            impactHintUntil = clock + 8;
           }
           readout();
           if (!health) break;
