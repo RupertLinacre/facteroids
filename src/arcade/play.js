@@ -1,3 +1,4 @@
+import { teamRoom } from "./team.js";
 import {
   stationLayout,
   bindKeypad,
@@ -100,9 +101,11 @@ export async function play() {
       .map(([v, n]) => (n > 1 ? n + " incoming " + v : "Target " + v))
       .join(" · ");
   };
+  let nextRockId = 0;
   function rock(value, depth, pose) {
     return {
       value,
+      id: ++nextRockId,
       depth,
       prime: isPrime(value),
       tint: `hsl(${(302 + value * 137.508) % 360}, 68%, 77%)`,
@@ -233,11 +236,17 @@ export async function play() {
     );
     readout();
   }
-  $("form").onsubmit = (event) => {
-    event.preventDefault();
+  function countPersonalAnswer() {
+    sessionAnswers++;
+    $("#session-answers").textContent = sessionAnswers;
+    try {
+      sessionStorage.setItem(sessionKey, String(sessionAnswers));
+    } catch {}
+  }
+  function answer(text, player, targetId) {
     if (paused || !health) return;
     audio.unlock();
-    const { product, factors, error } = parseFactorisation(input.value);
+    const { product, factors, error } = parseFactorisation(text);
     if (error) {
       feedback(error);
       return;
@@ -245,7 +254,10 @@ export async function play() {
     const targets = rocks.filter(
       (r) => !r.prime && !r.locked && r.value === product,
     );
-    if (!targets.length) {
+    if (
+      !targets.length ||
+      (targetId !== undefined && !targets.some((r) => r.id === targetId))
+    ) {
       feedback("No available asteroid labelled " + product + ".");
       return;
     }
@@ -255,11 +267,9 @@ export async function play() {
       0,
       ...targets.map((target, i) => -target.age / pace.speed - i * 0.1),
     );
+    team.credit(player);
     waves.answers++;
-    sessionAnswers++;
-    try {
-      sessionStorage.setItem(sessionKey, String(sessionAnswers));
-    } catch {}
+    if (player === "host") countPersonalAnswer();
     if (isPrime(factors.at(-1))) {
       for (const target of targets) waves.resolve(target.slot);
     }
@@ -270,22 +280,86 @@ export async function play() {
         shoot(target, factors, startDelay + (i + 1) * 0.1),
       );
     feedback(mount.weapon.name + " · " + product + " = " + factors.join(" × "));
-    input.value = "";
-    input.focus();
+    if (player === "host") {
+      input.value = "";
+      input.focus();
+    }
     readout();
+  }
+  const team = teamRoom(root, {
+    reset,
+    answer,
+    accepted() {
+      countPersonalAnswer();
+      audio.effect("split", 450, 1);
+    },
+    hold() {
+      if (health && !paused) pause();
+    },
+    resume() {
+      if (health && paused) pause();
+    },
+    snapshot() {
+      return {
+        targets: rocks
+          .filter((r) => !r.prime && !r.locked)
+          .map((r) => ({ id: r.id, value: r.value })),
+        health,
+        wave: waves.number,
+        cleared: waves.cleared,
+        answers: waves.answers,
+        hint: $(".impact-hint").hidden ? "" : $(".impact-hint").textContent,
+        message: !health
+          ? "Planet lost · waiting for host"
+          : paused
+            ? "Host paused"
+            : "",
+      };
+    },
+    display(s) {
+      $("#health").textContent = s.health + "%";
+      $("#wave").textContent = s.wave;
+      $("#wave-progress").textContent = s.cleared + "/" + waveSize + " cleared";
+      $("#wave-answers").textContent = s.answers;
+      $(".targets").textContent = s.targets
+        .map((t) => "Target " + t.value)
+        .join(" · ");
+      $(".impact-hint").hidden = !s.hint;
+      $(".impact-hint").textContent = s.hint;
+      status.textContent = s.message;
+      disableAnswer(Boolean(s.message));
+      $("#pause").disabled = true;
+    },
+  });
+  $("form").onsubmit = (event) => {
+    event.preventDefault();
+    if (!team.guest) return answer(input.value, "host");
+    const target = team.target(parseFactorisation(input.value).product);
+    if (target) {
+      audio.unlock();
+      team.submit(input.value, target);
+      input.value = "";
+    }
   };
   input.addEventListener("input", () => {
     if (paused || !health) return;
     const { product, error } = parseFactorisation(input.value);
     if (
       !error &&
-      rocks.some((r) => !r.prime && !r.locked && r.value === product)
+      (team.guest
+        ? team.target(product)
+        : rocks.some((r) => !r.prime && !r.locked && r.value === product))
     ) {
       $("form").requestSubmit();
     }
   });
   root.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && health) {
+    if (
+      event.key === "Escape" &&
+      !$("#team-menu").open &&
+      !team.guest &&
+      health
+    ) {
       event.preventDefault();
       pause();
     }
@@ -306,6 +380,10 @@ export async function play() {
     lastTime = undefined;
   });
   function frame(time) {
+    if (team.guest && team.active) {
+      requestAnimationFrame(frame);
+      return;
+    }
     const dt = (time - (lastTime ?? time)) / 1000;
     lastTime = time;
     if (!paused && health && !document.hidden) {
@@ -333,7 +411,12 @@ export async function play() {
             const damage = scene.hit(r, clock);
             health = Math.max(0, health - damage);
             const hint = $(".impact-hint");
-            hint.textContent = r.value + " hit · " + r.value + " = " + factorHints(r.value).join(" or ");
+            hint.textContent =
+              r.value +
+              " hit · " +
+              r.value +
+              " = " +
+              factorHints(r.value).join(" or ");
             hint.hidden = false;
             impactHintUntil = clock + 8;
           }
@@ -399,6 +482,7 @@ export async function play() {
         );
     }
     scene.draw(rocks, shots, clock + aftermath);
+    team.frame(time);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

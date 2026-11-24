@@ -102,10 +102,10 @@ export function stationLayout() {
     <div class="stage">
       <canvas class="flight-layer" aria-label="Factoroids orbital playfield"></canvas>
       <div class="planet-health" role="meter" aria-label="Planet health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><b id="health">100%</b><span aria-hidden="true">Health</span></div>
-      <span class="targets sr-only"></span>
+      <img id="team-view" alt="Shared orbital playfield" hidden><span class="targets sr-only"></span>
       <div class="wave-hud" aria-label="Wave progress">
         <div><strong>Wave <b id="wave">1</b></strong><span id="wave-progress"></span></div>
-        <small>Answers <b id="wave-answers">0</b> this wave · <b id="session-answers">0</b> this session</small>
+        <small>Answers <b id="wave-answers">0</b> this wave · <b id="session-answers">0</b> this session</small><small id="team-score" hidden></small>
       </div>
       <div class="wave-banner" role="status" hidden></div>
       <div class="impact-hint" role="status" aria-live="polite" hidden></div>
@@ -132,7 +132,13 @@ export function stationLayout() {
       <div class="answer-line"><input id="factors" aria-label="Your factors" aria-describedby="answer-feedback" inputmode="none" maxlength="80" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter factors, e.g. 2 × 5"><button class="send desktop-send" type="submit">Fire ↗</button></div>
       <p role="status" id="answer-feedback"></p>
       <fieldset class="station-keys" aria-label="Answer keypad">${keypad}</fieldset>
+      <a href="#team" id="team-link">multipler</a>
     </form>
+    <dialog id="team-menu"><h2>Team waves</h2><p>Room code <strong id="team-code"></strong></p>
+      <p id="team-notice" role="status"></p><p>You are <b id="team-self"></b></p><p id="team-roster"></p>
+      <label>Join another room <input id="team-input" maxlength="4" placeholder="Code" autocomplete="off"></label>
+      <button id="team-join">Join</button><p><button id="team-start" hidden>Start team game</button>
+      <button id="team-back">Back</button><button id="team-leave">Leave room</button></p></dialog>
   </main>`;
 }
 
