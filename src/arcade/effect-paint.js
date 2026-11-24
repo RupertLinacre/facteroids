@@ -1,5 +1,4 @@
-// Everything is drawn in a 480 × 256 orbital window, including the enlarged preview.
-export const TAU = 2 * Math.PI;
+const TAU = 2 * Math.PI;
 export const clamp = (n, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
 export function rand(n) {
   const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;

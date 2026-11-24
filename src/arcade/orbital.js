@@ -1,5 +1,4 @@
 import { deploy, interceptAt, stowAt, weaponFor } from "./deployment.js";
-import { planet, incoming, flight, fragment } from "./flight.js";
 import {
   capture,
   orbitPoint,
@@ -14,60 +13,53 @@ import { surfaceStrike } from "./surface-strike.js";
 import { createPainter } from "./painter.js";
 import { createPlanetFragments } from "./planet-fragments.js";
 
-export async function create(canvas, audio, world) {
-  const umbra = world.slug === "umbra-station";
-  const earth = planet(world.horizon);
-  if (umbra) earth.r = 65;
-  let renderer3d;
-  if (world.dimension === "3D") {
-    const { createModels } = await import("./models.js");
-    renderer3d = createModels(canvas, earth, world);
-  }
-  const paint = createPainter(canvas, world, earth, !!renderer3d);
+export async function create(canvas, audio) {
+  const earth = { x: 450, y: 220, r: 65 };
+  const { createModels } = await import("./models.js");
+  const renderer3d = createModels(canvas, earth);
+  const paint = createPainter(canvas, earth);
   let scars = [],
-    history = [],
     bursts = [],
     deployments = [],
     destruction = null;
-  function burst(x, y, time, type, count, radius = 18, angle = 0, weapon) {
-    bursts.push({ x, y, time, type, count, radius, angle, weapon });
-  }
   return {
     reset() {
-      if (umbra) earth.portrait = canvas.clientHeight > canvas.clientWidth;
-      renderer3d?.clearWakes();
+      earth.portrait = canvas.clientHeight > canvas.clientWidth;
+      renderer3d.clearWakes();
       deployments = [];
       scars = [];
-      history = [];
       bursts = [];
       destruction = null;
     },
     spawn(wave, difficulty, radius, year) {
-      const initial = umbra
-        ? capture(earth, wave, difficulty, radius, year)
-        : incoming(earth, wave);
+      const initial = capture(earth, wave, difficulty, radius, year);
       return {
         ...initial,
-        trail: umbra ? [trailSample(initial, earth)] : [],
+        trail: [trailSample(initial, earth)],
         sample: 0,
         safe: false,
       };
     },
     children(r, count, prime, factorCount = 2) {
-      const timeLeft = umbra ? Math.max(0, r.orbit.duration - r.age) : 0;
-      const radius = umbra
-        ? Math.max(7, ((r.radius ?? 24) / Math.cbrt(count)) * 0.94)
-        : undefined;
+      const timeLeft = Math.max(0, r.orbit.duration - r.age);
+      const radius = Math.max(7, ((r.radius ?? 24) / Math.cbrt(count)) * 0.94);
       return Array.from({ length: count }, (_, i) => {
-        const initial = umbra
-          ? transfer(r, i, count, earth, prime, timeLeft, radius, factorCount)
-          : fragment(r, i, count, earth);
+        const initial = transfer(
+          r,
+          i,
+          count,
+          earth,
+          prime,
+          timeLeft,
+          radius,
+          factorCount,
+        );
         return {
           ...initial,
-          age: umbra ? -Math.min(0.65, i * 0.035) : 0,
+          age: -Math.min(0.65, i * 0.035),
           radius,
           sample: 0,
-          trail: [umbra ? trailSample(initial, earth) : [r.x, r.y]],
+          trail: [trailSample(initial, earth)],
         };
       });
     },
@@ -82,45 +74,27 @@ export async function create(canvas, audio, world) {
       return mount;
     },
     fire(r, n) {
-      if (umbra) return audio.effect("launch", r.x, n);
-      audio.note(165 + n * 55, 0.18, "triangle");
+      audio.effect("launch", r.x, n);
     },
     impact(r, kids, t, weapon) {
-      if (!umbra) history.push({ points: r.trail, time: t });
-      burst(
-        r.x,
-        r.y,
-        t,
-        kids[0].prime ? "prime" : "split",
-        kids[0].prime ? 26 : 16,
-        r.radius ?? 20,
-        0,
+      bursts.push({
+        x: r.x,
+        y: r.y,
+        time: t,
+        type: kids[0].prime ? "prime" : "split",
+        count: kids[0].prime ? 26 : 16,
+        radius: r.radius ?? 20,
+        angle: 0,
         weapon,
-      );
-      if (umbra) {
-        audio.effect("split", r.x, weapon.power);
-        if (kids[0].prime) audio.effect("reentry", r.x);
-        return;
-      }
-      audio.note(kids[0].prime ? 784 : 180, 0.29, "triangle");
+      });
+      audio.effect("split", r.x, weapon.power);
+      if (kids[0].prime) audio.effect("reentry", r.x);
     },
     hit(r, t) {
-      const angle = Math.atan2(r.y - earth.y, r.x - earth.x);
-      const site = umbra
-        ? impactSite(r.orbit, earth)
-        : {
-            x: earth.x + Math.cos(angle) * (earth.r - 5),
-            y: earth.y + Math.sin(angle) * (earth.r - 5),
-            angle,
-          };
-      const strike = umbra ? surfaceStrike(r) : null;
-      const scar = {
-        ...site,
-        time: t,
-        size: strike?.crater ?? Math.min(28, 14 + (r.radius ?? 20) * 0.38),
-      };
-      scars.push(scar);
-      if (umbra && scars.length > 8) scars.shift();
+      const site = impactSite(r.orbit, earth);
+      const strike = surfaceStrike(r);
+      scars.push({ ...site, time: t, size: strike.crater });
+      if (scars.length > 8) scars.shift();
       bursts.push({
         ...site,
         time: t,
@@ -129,11 +103,8 @@ export async function create(canvas, audio, world) {
         radius: r.radius ?? 20,
         strike,
       });
-      if (umbra) {
-        audio.effect("impact", r.x, strike.strength);
-        return Math.min(55, Math.max(1, Math.round(26 * strike.strength ** 2)));
-      }
-      audio.note(54, 0.65, "sawtooth", 0.035);
+      audio.effect("impact", r.x, strike.strength);
+      return Math.min(55, Math.max(1, Math.round(26 * strike.strength ** 2)));
     },
     destroyPlanet(t) {
       destruction = { time: t, fragments: createPlanetFragments(earth) };
@@ -141,9 +112,9 @@ export async function create(canvas, audio, world) {
       deployments = [];
       audio.effect("planet-loss", earth.x);
     },
-    move(r, dt, clock) {
-      const collided = r.orbit ? advanceOrbit(r, dt) : flight(r, earth, dt);
-      if (r.orbit?.prime) {
+    move(r, dt) {
+      const collided = advanceOrbit(r, dt);
+      if (r.orbit.prime) {
         const heat = cometActivity(r, earth);
         r.burn = Math.min(
           1,
@@ -151,24 +122,19 @@ export async function create(canvas, audio, world) {
         );
       }
       r.sample += dt;
-      if (r.sample > (r.orbit?.prime ? 0.028 : 0.1)) {
-        r.trail.push(
-          umbra ? trailSample(r, earth, r.trail.at(-1)) : [r.x, r.y],
-        );
+      if (r.sample > (r.orbit.prime ? 0.028 : 0.1)) {
+        r.trail.push(trailSample(r, earth, r.trail.at(-1)));
         if (r.trail.length > TRAIL_LIMIT) r.trail.shift();
         r.sample = 0;
       }
-      if (r.prime) return r.orbit ? collided || r.burn >= 1 : r.age > 2;
-      if (umbra && !r.approachHeard && cometActivity(r, earth) > 0.5) {
+      if (r.prime) return collided || r.burn >= 1;
+      if (!r.approachHeard && cometActivity(r, earth) > 0.5) {
         r.approachHeard = true;
         audio.effect("approach", r.x);
       }
-      if (r.safe)
-        return r.age > 3.2 || r.x < -30 || r.x > 930 || r.y < -40 || r.y > 480;
       return collided;
     },
     draw(rocks, shots, t) {
-      history = history.filter((h) => t - h.time < 4);
       bursts = bursts.filter(
         (b) =>
           t - b.time < (b.strike?.duration ?? b.weapon?.blastDuration ?? 1.2),
@@ -176,11 +142,9 @@ export async function create(canvas, audio, world) {
       deployments = deployments.filter((m) => t - m.time < stowAt);
       const visibleRocks = destruction
         ? destruction.fragments(t - destruction.time)
-        : umbra
-          ? rocks.filter((r) => r.age >= 0)
-          : rocks;
+        : rocks.filter((r) => r.age >= 0);
       const visibleShots = destruction ? [] : shots;
-      renderer3d?.draw(
+      renderer3d.draw(
         visibleRocks,
         t,
         scars,
@@ -191,10 +155,7 @@ export async function create(canvas, audio, world) {
       );
       paint(
         destruction ? [] : visibleRocks,
-        visibleShots,
         t,
-        scars,
-        history,
         bursts,
         deployments,
         destruction,

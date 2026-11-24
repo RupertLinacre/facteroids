@@ -90,7 +90,7 @@ const keys = [
 ];
 const keyNames = { "×": "Multiply", "^": "Power", "⌫": "Backspace" };
 
-export function stationLayout(world) {
+export function stationLayout() {
   const keypad = keys
     .map((key) =>
       key === "Fire"
@@ -98,9 +98,9 @@ export function stationLayout(world) {
         : `<button type="button" data-key="${key}" aria-label="${keyNames[key] ?? key}">${key}</button>`,
     )
     .join("");
-  return `<main class="station" aria-label="Factoroids · Umbra Station">
-    <div class="stage" style="--sky:url('/skies/${world.slug}.webp')">
-      <canvas class="flight-layer" aria-label="Umbra Station orbital playfield"></canvas>
+  return `<main class="station" aria-label="Factoroids">
+    <div class="stage">
+      <canvas class="flight-layer" aria-label="Factoroids orbital playfield"></canvas>
       <div class="planet-health" role="meter" aria-label="Planet health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><b id="health">100%</b><span aria-hidden="true">Health</span></div>
       <span class="targets sr-only"></span>
       <button type="button" id="pause" aria-label="Pause and open settings" aria-controls="station-menu" aria-expanded="false" title="Pause and open settings">⚙</button>
@@ -118,7 +118,7 @@ export function stationLayout(world) {
           <label for="spawn-rate">Spawn rate</label><select id="spawn-rate"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select>
         </div>
         <button type="button" class="action" id="resume">Resume</button>
-        <div class="menu-tools"><button id="restart">Restart</button><button id="sound" aria-pressed="false">Mute</button><a href="/effects-gallery/">Effects gallery</a><a href="/">All editions</a></div>
+        <div class="menu-tools"><button id="restart">Restart</button><button id="sound" aria-pressed="false">Mute</button></div>
       </section></div>
     </div>
     <form class="station-controls">

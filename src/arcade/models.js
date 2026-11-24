@@ -4,7 +4,7 @@ import { createAtmosphere } from "./atmosphere.js";
 import { impactModels } from "./impact-models.js";
 import { planetVisibility } from "./surface-strike.js";
 import { createPlumes } from "./plasma.js";
-import { W, H, noise, tau, viewScale } from "./drawing.js";
+import { W, H, viewScale } from "./drawing.js";
 
 const hashGL = `float hash(vec3 p){p=fract(p*.3183099+vec3(.11,.41,.73));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
 float grain(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
@@ -131,151 +131,6 @@ function redPlanet(scene, planet) {
     }
   };
 }
-function iceShelf(scene, e) {
-  const points = [],
-    colors = [],
-    palette = [
-      "#4b7497",
-      "#527ca2",
-      "#366186",
-      "#7898ad",
-      "#a6cad5",
-      "#354e75",
-    ];
-  const rows = Array.from({ length: 6 }, (_, j) =>
-    Array.from({ length: 32 }, (_, i) => {
-      const x = -25 + i * 31 + (j % 2) * 13;
-      const y =
-        e.y -
-        Math.sqrt(e.r ** 2 - (x - e.x) ** 2) +
-        j * 17 +
-        noise(i + j * 53) * (j ? 11 : 2);
-      return [x, H - y, noise(i * 11 + j) * 12 - 14];
-    }),
-  );
-  function tri(a, b, c, seed) {
-    points.push(...a, ...b, ...c);
-    const color = new T.Color(
-      palette[Math.floor(noise(seed) * palette.length)],
-    );
-    for (let i = 0; i < 3; i++) colors.push(color.r, color.g, color.b);
-  }
-  for (let j = 0; j < 5; j++)
-    for (let i = 0; i < 31; i++) {
-      const a = rows[j][i],
-        b = rows[j][i + 1],
-        c = rows[j + 1][i],
-        d = rows[j + 1][i + 1];
-      tri(a, b, c, i + j * 77);
-      tri(c, b, d, 90 + i * 2 + j * 47);
-    }
-  const geometry = new T.BufferGeometry();
-  geometry.setAttribute("position", new T.Float32BufferAttribute(points, 3));
-  geometry.setAttribute("color", new T.Float32BufferAttribute(colors, 3));
-  scene.add(
-    new T.Mesh(
-      geometry,
-      new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide }),
-    ),
-  );
-  const steel = new T.MeshStandardMaterial({
-    color: "#add6da",
-    metalness: 0.42,
-    roughness: 0.45,
-    flatShading: true,
-  });
-  const trim = new T.MeshStandardMaterial({
-    color: "#294961",
-    metalness: 0.35,
-    roughness: 0.51,
-  });
-  const bulb = new T.MeshBasicMaterial({ color: "#a1ffed" });
-  function add(geo, mat, x, y, z) {
-    const m = new T.Mesh(geo, mat);
-    m.position.set(x, H - y, z);
-    scene.add(m);
-    return m;
-  }
-  for (const x of [344, 450, 539]) {
-    const y = e.y - Math.sqrt(e.r ** 2 - (x - e.x) ** 2) + 2,
-      main = x === 450;
-    add(
-      new T.CylinderGeometry(main ? 19 : 7, main ? 25 : 10, main ? 9 : 5, 8),
-      trim,
-      x,
-      y,
-      10,
-    );
-    add(
-      new T.SphereGeometry(main ? 13 : 7, 12, 7, 0, tau, 0, Math.PI / 2),
-      steel,
-      x,
-      y - 4,
-      14,
-    );
-    if (main) {
-      for (const side of [-1, 1]) {
-        const tube = add(
-          new T.CylinderGeometry(2.0, 3, 17, 8),
-          steel,
-          x + side * 4,
-          y - 14,
-          17,
-        );
-        tube.rotation.z = side * 0.23;
-        add(new T.SphereGeometry(2, 8, 6), bulb, x + side * 6, y - 22, 17);
-      }
-    } else {
-      const dish = add(
-        new T.SphereGeometry(
-          8.5,
-          12,
-          5,
-          0,
-          tau,
-          Math.PI * 0.34,
-          Math.PI * 0.35,
-        ),
-        steel,
-        x,
-        y - 12,
-        13,
-      );
-      dish.scale.y = 0.52;
-      dish.rotation.z = x < 450 ? 0.49 : -0.49;
-    }
-  }
-  return () => {};
-}
-function asteroidMaterial(ice) {
-  const mat = new T.MeshStandardMaterial({
-    color: ice ? "#9fc8dd" : "#776d80",
-    roughness: ice ? 0.3 : 0.84,
-    metalness: ice ? 0.36 : 0.17,
-    flatShading: true,
-  });
-  mat.onBeforeCompile = (s) => {
-    s.vertexShader =
-      "varying vec3 localPoint;\n" +
-      s.vertexShader.replace(
-        "#include <begin_vertex>",
-        "#include <begin_vertex>\nlocalPoint=position;",
-      );
-    s.fragmentShader =
-      "varying vec3 localPoint;\n" +
-      hashGL +
-      "\n" +
-      s.fragmentShader.replace(
-        "#include <color_fragment>",
-        `#include <color_fragment>
-      float vein=abs(sin(localPoint.y*8.+fb(localPoint*4.)*9.));
-      diffuseColor.rgb *= .58+.64*fb(localPoint*9.);
-      diffuseColor.rgb += (1.-smoothstep(.015,.10,vein))*${ice ? "vec3(.23,.9,.95)" : "vec3(1.,.27,.045)"};`,
-      );
-  };
-  return mat;
-}
-// Translucent-looking glacial layers, a frosted rind and lit fracture planes.
 function glacierMaterial(tint) {
   return new T.ShaderMaterial({
     uniforms: {
@@ -301,7 +156,7 @@ function glacierMaterial(tint) {
     }`,
   });
 }
-export function createModels(overlay, earth, world) {
+export function createModels(overlay, earth) {
   const canvas = document.createElement("canvas");
   canvas.className = "model-layer";
   canvas.setAttribute("aria-hidden", "true");
@@ -323,18 +178,10 @@ export function createModels(overlay, earth, world) {
   const rim = new T.DirectionalLight(0x76dbff, 2.5);
   rim.position.set(170, 12, -75);
   scene.add(rim);
-  const ice = world.horizon,
-    update = ice ? iceShelf(scene, earth) : redPlanet(scene, earth);
-  const iceMaterials = new Map();
-  const mineral = ice ? asteroidMaterial(true) : null,
-    prime = new T.MeshStandardMaterial({
-      color: "#d1ffee",
-      emissive: "#64c995",
-      emissiveIntensity: 0.6,
-      flatShading: true,
-    });
+  const update = redPlanet(scene, earth);
+  const materials = new Map();
   const stones = Array.from({ length: 4 }, (_, j) => {
-    const geom = new T.IcosahedronGeometry(1, ice ? 0 : 2),
+    const geom = new T.IcosahedronGeometry(1, 2),
       pos = geom.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i),
@@ -344,24 +191,18 @@ export function createModels(overlay, earth, world) {
         1 +
         0.12 * Math.sin(x * 7 + j) * Math.cos(y * 8 + z * 5) +
         0.08 * Math.sin(y * 10 - x * 3);
-      pos.setXYZ(
-        i,
-        x * rough * (ice ? 0.85 : 1.1),
-        y * rough * (ice ? 1.25 : 1),
-        z * rough,
-      );
+      pos.setXYZ(i, x * rough * 1.1, y * rough, z * rough);
     }
     geom.computeVertexNormals();
     return geom;
   });
-  const plumes =
-    world.slug === "umbra-station" ? createPlumes(scene, earth) : null;
-  const impacts = plumes ? impactModels(scene) : null;
+  const plumes = createPlumes(scene, earth);
+  const impacts = impactModels(scene);
   const objects = new Map();
   let width, height, portrait;
   return {
     clearWakes() {
-      plumes?.clear();
+      plumes.clear();
     },
     draw(rocks, t, scars, deployments, bursts, shots, destruction) {
       if (
@@ -373,14 +214,12 @@ export function createModels(overlay, earth, world) {
         height = overlay.clientHeight;
         renderer.setSize(width, height, false);
         portrait = earth.portrait;
-        if (world.slug === "umbra-station") {
-          const scale = viewScale(width, height, portrait);
-          cam.left = (W - width / scale) / 2;
-          cam.right = W - cam.left;
-          cam.bottom = (H - height / scale) / 2;
-          cam.top = H - cam.bottom;
-          cam.updateProjectionMatrix();
-        }
+        const scale = viewScale(width, height, portrait);
+        cam.left = (W - width / scale) / 2;
+        cam.right = W - cam.left;
+        cam.bottom = (H - height / scale) / 2;
+        cam.top = H - cam.bottom;
+        cam.updateProjectionMatrix();
       }
       update(
         t,
@@ -395,12 +234,9 @@ export function createModels(overlay, earth, world) {
       for (const r of rocks) {
         let m = objects.get(r);
         if (!m) {
-          let material = r.prime ? prime : mineral;
-          if (r.orbit) {
-            if (!iceMaterials.has(r.value))
-              iceMaterials.set(r.value, glacierMaterial(r.tint));
-            material = iceMaterials.get(r.value);
-          }
+          if (!materials.has(r.value))
+            materials.set(r.value, glacierMaterial(r.tint));
+          const material = materials.get(r.value);
           m = new T.Mesh(stones[r.value % 4], material);
           scene.add(m);
           objects.set(r, m);
@@ -408,17 +244,14 @@ export function createModels(overlay, earth, world) {
         m.position.set(r.x, H - r.y, 105);
         m.rotation.set(
           r.value * 0.72 + t * 0.21,
-          t * 0.4 + r.vx * 0.02,
+          t * 0.4 + (r.vx ?? 0) * 0.02,
           t * 0.14,
         );
-        const radius = r.orbit
-          ? visibleRadius(r, earth)
-          : (r.radius ?? Math.max(12, 26 - r.depth * 4)) *
-            (r.prime ? Math.min(1, Math.max(0.02, 2 - r.age)) : 1);
+        const radius = visibleRadius(r, earth);
         m.scale.setScalar(radius);
       }
-      plumes?.draw(rocks, t);
-      impacts?.(deployments, bursts, shots, t);
+      plumes.draw(rocks, t);
+      impacts(deployments, bursts, shots, t);
       renderer.render(scene, cam);
     },
   };

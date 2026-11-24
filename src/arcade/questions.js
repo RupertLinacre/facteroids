@@ -1,13 +1,3 @@
-const table = [24, 36, 42, 48, 54, 56, 63, 72, 81, 96, 108, 121, 144];
-const challenge = [
-  26, 51, 76, 85, 91, 104, 119, 136, 143, 152, 153, 161, 187, 209, 221,
-];
-export function numberForWave(w) {
-  if (w === 1) return 70;
-  const pool = w % 3 === 0 ? challenge : table;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-
 // England's programmes of study specify primary tables by year. KS3 spans
 // Years 7–9; the two secondary decks here are a game progression within KS3.
 // Reference: RobinL/maths-game-problem-generator, national_curriculum.md.
