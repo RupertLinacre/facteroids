@@ -352,3 +352,15 @@ body:has(.station) {
 #team-code { font: bold 1.5rem monospace; letter-spacing:.15em; }
 #team-input { width:6em; text-transform:uppercase; }
 #team-menu button { padding:8px; }
+
+#team-menu { width: min(400px, 92vw); max-height: 90dvh; overflow-y: auto; }
+#team-menu h2 { margin: 0 0 12px; font-size: 26px; }
+#team-menu section[hidden] { display: none; }
+#team-menu label { display: block; margin: 14px 0 6px; color: #c9d8ea; }
+#team-menu input { width: 100%; min-height: 44px; }
+#team-menu #team-input { width: 100%; letter-spacing: .12em; }
+#team-menu .team-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+#team-menu button { min-height: 44px; border: 1px solid #5a7798; border-radius: 7px; background: #20344e; color: #e7f3ff; padding: 9px 14px; }
+#team-menu .team-primary { background: #afd7ff; color: #102235; border-color: #afd7ff; font-weight: 700; }
+#team-menu .team-close { margin-top: 15px; background: transparent; border-color: transparent; color: #bdcfe3; }
+#team-notice:empty, #team-roster:empty { display: none; }

@@ -134,11 +134,25 @@ export function stationLayout() {
       <fieldset class="station-keys" aria-label="Answer keypad">${keypad}</fieldset>
       <a href="#team" id="team-link">multiplayer</a>
     </form>
-    <dialog id="team-menu"><h2>Team waves</h2><p>Room code <strong id="team-code"></strong></p>
-      <p id="team-notice" role="status"></p><p>You are <b id="team-self"></b></p><p id="team-roster"></p>
-      <label>Join another room <input id="team-input" maxlength="4" placeholder="Code" autocomplete="off"></label>
-      <button id="team-join">Join</button><p><button id="team-start" hidden>Start team game</button>
-      <button id="team-back">Back</button><button id="team-leave">Leave room</button></p></dialog>
+    <dialog id="team-menu" aria-labelledby="team-title">
+      <h2 id="team-title">Play together</h2>
+      <p id="team-notice" role="status"></p>
+      <section id="team-choice">
+        <p>Work together to defend the planet.</p>
+        <div class="team-actions"><button id="team-create-choice" class="team-primary">Create a game</button><button id="team-join-choice">Join a game</button></div>
+      </section>
+      <section id="team-details" hidden>
+        <label for="team-name">Your name</label><input id="team-name" maxlength="24" autocomplete="nickname" placeholder="Enter your name">
+        <div id="team-code-entry" hidden><label for="team-input">Game code</label><input id="team-input" maxlength="4" placeholder="4-character code" autocomplete="off" autocapitalize="characters"></div>
+        <div class="team-actions"><button id="team-connect" class="team-primary">Create game</button><button id="team-previous">Back</button></div>
+      </section>
+      <section id="team-lobby" hidden>
+        <p>Game code <strong id="team-code"></strong></p>
+        <p>You are <b id="team-self"></b></p><p id="team-roster"></p>
+        <div class="team-actions"><button id="team-start" class="team-primary" hidden>Start team game</button><button id="team-leave">Leave game</button></div>
+      </section>
+      <button id="team-back" class="team-close">Close</button>
+    </dialog>
   </main>`;
 }
 

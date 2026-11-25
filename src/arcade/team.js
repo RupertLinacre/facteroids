@@ -21,10 +21,23 @@ export function teamRoom(root, game) {
     generation = 0,
     nextPlayer,
     running = false,
-    targets = [];
+    targets = [],
+    selectedMode = "create",
+    localName = "";
   let pending = [],
     lastSync = 0;
 
+  function show(section) {
+    for (const name of ["choice", "details", "lobby"])
+      $("#team-" + name).hidden = name !== section;
+    $("#team-title").textContent = section === "choice" ? "Play together" :
+      section === "details" ? (selectedMode === "create" ? "Create a game" : "Join a game") : "Team game";
+    notice.textContent = "";
+  }
+  function playerName(value, fallback) {
+    if (typeof value !== "string") return fallback;
+    return value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 24) || fallback;
+  }
   function scores() {
     const rows = Array.from(players, ([id, p]) => p.name + " · " + p.solves);
     roster.textContent = rows.join("   /   ");
@@ -55,6 +68,7 @@ export function teamRoom(root, game) {
     close();
     game.reset();
     game.hold();
+    show("details");
     notice.textContent = message;
     if (!dialog.open) dialog.showModal();
   }
@@ -74,6 +88,8 @@ export function teamRoom(root, game) {
     const token = generation;
     code = join || newCode();
     $("#team-code").textContent = code;
+    show("lobby");
+    $("#team-self").textContent = localName;
     notice.textContent = join ? "Joining room…" : "Opening room…";
     role = join ? "guest" : "host";
     try {
@@ -108,7 +124,7 @@ export function teamRoom(root, game) {
         if (token !== generation) return;
         if (!join) {
           clearTimeout(timer);
-          players.set("host", { name: "Player 1", solves: 0 });
+          players.set("host", { name: localName, solves: 0 });
           nextPlayer = 2;
           scores();
           notice.textContent =
@@ -119,6 +135,7 @@ export function teamRoom(root, game) {
         host = current.connect(prefix + code, { reliable: true });
         host.on("open", () => {
           clearTimeout(timer);
+          host.send({ type: "hello", name: localName });
           notice.textContent = "Connected. Waiting for the host to start.";
         });
         host.on("data", (p) => {
@@ -129,7 +146,7 @@ export function teamRoom(root, game) {
             scores();
           } else if (p.type === "sync") guestState(p);
           else if (p.type === "accepted") game.accepted();
-          else if (p.type === "identity") $("#team-self").textContent = p.name;
+          else if (p.type === "identity") $("#team-self").textContent = localName;
         });
         host.on("close", () => {
           if (token === generation)
@@ -160,6 +177,12 @@ export function teamRoom(root, game) {
             });
         });
         conn.on("data", (p) => {
+          if (token !== generation) return;
+          if (p?.type === "hello" && players.has(conn.peer)) {
+            players.get(conn.peer).name = playerName(p.name, players.get(conn.peer).name);
+            sendScores();
+            return;
+          }
           if (
             token === generation &&
             running &&
@@ -183,18 +206,34 @@ export function teamRoom(root, game) {
     e.preventDefault();
     if (!role) {
       game.hold();
-      $("#team-self").textContent = "Player 1";
-      connect();
-    }
+      show("choice");
+    } else show("lobby");
     dialog.showModal();
   };
-  $("#team-join").onclick = () => {
-    const value = $("#team-input").value.trim().toUpperCase();
-    if (!/^[A-Z0-9]{4}$/.test(value)) {
-      notice.textContent = "Enter the four-character room code.";
+  function choose(mode) {
+    selectedMode = mode;
+    show("details");
+    $("#team-code-entry").hidden = mode !== "join";
+    $("#team-connect").textContent = mode === "create" ? "Create game" : "Join game";
+    $("#team-name").focus();
+  }
+  $("#team-create-choice").onclick = () => choose("create");
+  $("#team-join-choice").onclick = () => choose("join");
+  $("#team-previous").onclick = () => show("choice");
+  $("#team-connect").onclick = () => {
+    localName = playerName($("#team-name").value, "");
+    if (!localName) {
+      notice.textContent = "Enter your name to continue.";
+      $("#team-name").focus();
       return;
     }
-    if (value !== code || !peer) connect(value);
+    const value = $("#team-input").value.trim().toUpperCase();
+    if (selectedMode === "join" && !/^[A-Z0-9]{4}$/.test(value)) {
+      notice.textContent = "Enter the four-character game code.";
+      $("#team-input").focus();
+      return;
+    }
+    connect(selectedMode === "join" ? value : undefined);
   };
   $("#team-start").onclick = () => {
     running = true;
