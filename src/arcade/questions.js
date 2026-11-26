@@ -145,7 +145,7 @@ function shuffle(items, random) {
   return items;
 }
 
-export function createWaveDeck(year, wave, recent = [], random = Math.random) {
+export function createWaveDeck(year, wave, recent = [], random = Math.random, size = waveSize) {
   const pool = banks[year].filter((q) => q.peak <= waveCeiling(year, wave));
   const top = Math.max(...pool.map((q) => q.grade));
   const bands = [[], [], []];
@@ -159,10 +159,22 @@ export function createWaveDeck(year, wave, recent = [], random = Math.random) {
           : 2;
     bands[band].push(q);
   }
-  const order = [0, ...shuffle([0, 1, 1, 2, 2], random)];
+  const order = [];
+  while (order.length < size) {
+    order.push(0, ...shuffle([0, 1, 1, 2, 2], random));
+  }
+  order.length = size;
   const selected = [];
+  const used = new Set();
   for (const band of order) {
-    const unused = pool.filter((q) => !selected.includes(q));
+    let unused = pool.filter((q) => !used.has(q));
+    if (!unused.length) {
+      // Large teams can exhaust a small year group's bank. Reuse questions
+      // only after every value has appeared, avoiding the most recent ones.
+      used.clear();
+      for (const q of selected.slice(-Math.min(5, pool.length - 1))) used.add(q);
+      unused = pool.filter((q) => !used.has(q));
+    }
     let options = bands[band].filter((q) => unused.includes(q));
     if (!options.length) options = unused;
     const fresh = options.filter((q) => !recent.includes(q.value));
@@ -170,7 +182,9 @@ export function createWaveDeck(year, wave, recent = [], random = Math.random) {
     // Reserve very unfamiliar pairs for occasional stretch questions.
     const familiar = options.filter((q) => q.grade < 72);
     if (familiar.length && random() < 0.85) options = familiar;
-    selected.push(options[Math.floor(random() * options.length)]);
+    const question = options[Math.floor(random() * options.length)];
+    selected.push(question);
+    used.add(question);
   }
   const ceiling = Math.max(...selected.map((q) => q.grade));
   return selected.map((q) => ({

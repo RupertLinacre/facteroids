@@ -1,14 +1,14 @@
-import { createWaveDeck } from "./questions.js";
+import { createWaveDeck, waveSize } from "./questions.js";
 
 // Each slot follows one incoming number and all its dangerous descendants.
 // A missed branch costs health and returns that slot to the queue.
 export class Waves {
-  constructor(year, random = Math.random) {
+  constructor(year, random = Math.random, playerCount = 1) {
     this.year = year;
     this.random = random;
     this.times = [];
     this.recent = [];
-    this.begin(0);
+    this.begin(0, playerCount);
   }
 
   get number() {
@@ -19,7 +19,7 @@ export class Waves {
     return this.slots.filter((s) => s.cleared).length;
   }
 
-  begin(clock) {
+  begin(clock, playerCount) {
     this.started = clock;
     this.answers = 0;
     this.slots = createWaveDeck(
@@ -27,6 +27,7 @@ export class Waves {
       this.number,
       this.recent,
       this.random,
+      waveSize * playerCount,
     ).map((question) => ({
       question,
       remaining: 0,
@@ -37,7 +38,7 @@ export class Waves {
 
   changeYear(year) {
     this.year = year;
-    const deck = createWaveDeck(year, this.number, this.recent, this.random);
+    const deck = createWaveDeck(year, this.number, this.recent, this.random, this.slots.length);
     this.slots.forEach((slot, i) => {
       if (!slot.cleared) {
         // Live rocks keep their own orbit and deadline. A retry uses the new year.
@@ -64,10 +65,10 @@ export class Waves {
     slot.cleared = slot.remaining === 0 && !slot.missed;
   }
 
-  advance(clock) {
+  advance(clock, playerCount = 1) {
     if (this.cleared !== this.slots.length) return false;
     this.times.push(clock - this.started);
-    this.begin(clock);
+    this.begin(clock, playerCount);
     return true;
   }
 }

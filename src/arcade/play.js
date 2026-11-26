@@ -9,7 +9,7 @@ import {
 import "./station.css";
 import { formatFactors, parseFactorisation } from "../factors.js";
 import { fireAt, interceptAt } from "./deployment.js";
-import { factorHints, isPrime, spawnInterval, waveSize } from "./questions.js";
+import { factorHints, isPrime, spawnInterval } from "./questions.js";
 import { Waves } from "./waves.js";
 import { instrument } from "./audio.js";
 import { create } from "./orbital.js";
@@ -92,7 +92,7 @@ export async function play() {
     meter.dataset.critical = String(health <= 25);
     $("#wave").textContent = waves.number;
     $("#wave-progress").textContent =
-      waves.cleared + "/" + waveSize + " cleared";
+      waves.cleared + "/" + waves.slots.length + " cleared";
     $("#wave-answers").textContent = waves.answers;
     $("#session-answers").textContent = sessionAnswers;
     const counts = new Map();
@@ -137,7 +137,7 @@ export async function play() {
   }
   function reset() {
     aftermath = 0;
-    waves = new Waves(year);
+    waves = new Waves(year, Math.random, team.playerCount);
     audio.reset();
     scene.reset();
     rocks = [];
@@ -432,6 +432,7 @@ export async function play() {
         health,
         wave: waves.number,
         cleared: waves.cleared,
+        waveSize: waves.slots.length,
         answers: waves.answers,
         hint: $(".impact-hint").hidden ? "" : $(".impact-hint").textContent,
         message: !health
@@ -444,7 +445,7 @@ export async function play() {
     display(s) {
       $("#health").textContent = s.health + "%";
       $("#wave").textContent = s.wave;
-      $("#wave-progress").textContent = s.cleared + "/" + waveSize + " cleared";
+      $("#wave-progress").textContent = s.cleared + "/" + s.waveSize + " cleared";
       $("#wave-answers").textContent = s.answers;
       $(".targets").textContent = s.targets
         .map((t) => "Target " + t.value)
@@ -611,7 +612,7 @@ export async function play() {
         $(".planet-health").hidden = true;
         scene.destroyPlanet(clock);
       } else {
-        if (waves.advance(clock)) {
+        if (waves.advance(clock, team.playerCount)) {
           const banner = $(".wave-banner");
           banner.textContent =
             "Wave " +
@@ -648,7 +649,7 @@ export async function play() {
             " · " +
             waves.cleared +
             "/" +
-            waveSize +
+            waves.slots.length +
             " cleared",
           "Play again",
         );

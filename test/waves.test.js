@@ -100,3 +100,27 @@ test("a failed branch needs a retry, siblings count once, and wave times are per
   assert.ok(waves.advance(100));
   assert.deepEqual(waves.times, [43, 57]);
 });
+
+test("team wave sizes follow the player count at wave boundaries", () => {
+  const waves = new Waves(2, seeded(19), 3);
+  assert.equal(waves.slots.length, 18);
+  for (let i = 0; i < 18; i++) waves.resolve(waves.next(new Set()));
+  assert.ok(waves.advance(60, 2));
+  assert.equal(waves.slots.length, 12);
+  waves.changeYear(3);
+  assert.ok(waves.slots.every((slot) => slot.question.year === 3));
+  for (let i = 0; i < 12; i++) waves.resolve(waves.next(new Set()));
+  assert.ok(waves.advance(120, 1));
+  assert.equal(waves.slots.length, 6);
+});
+
+test("large teams get complete curriculum-limited waves even when the bank is exhausted", () => {
+  const deck = createWaveDeck(2, 1, [], seeded(3), 120);
+  assert.equal(deck.length, 120);
+  for (const q of deck) {
+    for (let d = 4; d <= q.value; d++)
+      if (q.value % d === 0 && !isPrime(d))
+        assert.ok(difficultyOf(d) <= waveCeiling(2, 1));
+  }
+  for (let i = 1; i < deck.length; i++) assert.notEqual(deck[i].value, deck[i - 1].value);
+});
