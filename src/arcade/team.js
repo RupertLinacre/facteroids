@@ -260,6 +260,11 @@ export function teamRoom(root, game) {
     game.reset();
   };
   return {
+    get playerCount() {
+      return role === "host" && running
+        ? 1 + [...guests.values()].filter((connection) => connection.open).length
+        : 1;
+    },
     get guest() {
       return role === "guest";
     },

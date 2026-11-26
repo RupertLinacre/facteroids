@@ -622,7 +622,8 @@ export async function play() {
           readout();
         }
         if (clock - waves.started > 3) $(".wave-banner").hidden = true;
-        spawnClock += step * pace["spawn-rate"];
+        const playerCount = team.playerCount;
+        spawnClock += step * pace["spawn-rate"] * playerCount;
         const active = new Set(
           rocks
             .filter((r) => !r.safe && !r.prime && !r.locked)
@@ -630,7 +631,7 @@ export async function play() {
         );
         if (
           !active.size ||
-          (active.size < (year >= 6 ? 4 : 3) &&
+          (active.size < (year >= 6 ? 4 : 3) * playerCount &&
             spawnClock >= spawnInterval(year, waves.number))
         ) {
           spawn(active);
