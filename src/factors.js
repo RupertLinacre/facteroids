@@ -6,7 +6,7 @@ export function parseFactorisation(input) {
   );
   const match = /^(?:(\d+)\s*=\s*)?([^=]+)$/.exec(input.trim());
   if (!match) return { error: syntax };
-  const terms = match[2].replace(/\s*\^\s*/g, "^").split(/\s*[x×]\s*|\s+/i);
+  const terms = match[2].replace(/\s*\^\s*/g, "^").split(/\s*[x×*]\s*|\s+/i);
   const factors = [];
   let product = 1;
   for (const term of terms) {
@@ -35,8 +35,8 @@ export function parseFactorisation(input) {
 // Format completed powers and separators while retaining an editable text field.
 export function formatFactors(value) {
   return value
-    .replace(/\^(\d+)(?=\s|[x×])/gi, (_, power) =>
+    .replace(/\^(\d+)(?=\s|[x×*])/gi, (_, power) =>
       [...power].map((digit) => "⁰¹²³⁴⁵⁶⁷⁸⁹"[Number(digit)]).join("")
     )
-    .replace(/\s*[x×]\s*|\s+/gi, " × ");
+    .replace(/\s*[x×*]\s*|\s+/gi, " × ");
 }
